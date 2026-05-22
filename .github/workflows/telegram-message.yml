@@ -2,7 +2,7 @@ name: Telegram Auto Message
 
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "0 17,20 * * *"
   workflow_dispatch:
 
 jobs:
@@ -13,4 +13,4 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.BOT_TOKEN }}/sendMessage" \
           -d "chat_id=${{ secrets.CHAT_ID }}" \
-          -d "text=[ГРУПА ЗА РЕСУРСЕ] Ова група је само за ћаскање. Придружите се другој групи где ћете наћи све православне и остале ресурсе https://t.me/resursiced"
+          -d "text=Браћо, подсетник: прочитајте правила групе и држите разговор нормалним."
