@@ -1,4 +1,4 @@
-name = "pravoslavni-telegram-bot"
+name = "telegram-auto-message2"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
