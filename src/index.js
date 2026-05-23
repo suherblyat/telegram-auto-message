@@ -114,6 +114,10 @@ ${e(today.title || "Није уписано")}`, threadId);
    else if (isCommand(text, ["/molitva", "/молитва"])) {
       reply = formatRandomPrayer();
     }
+
+    else if (isCommand(text, ["/glas", "/глас"])) {
+      reply = today ? formatToneCommand(today) : missingDateMessage(todayKey);
+    }
     
     else if (isCommand(text, ["/citat", "/цитат"])) {
       reply = formatRandomQuote();
@@ -455,6 +459,7 @@ function formatHelp() {
 /свписмо   Дневна читања
 /тропар    Тропар дана
 /кондак    Кондак дана
+/глас      Глас недеље
 
 <b>Преглед дана</b>
 /сутра     Преглед за сутрашњи дан
