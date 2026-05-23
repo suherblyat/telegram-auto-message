@@ -406,6 +406,7 @@ function formatCalendarCaption(data) {
 📅 <b>Датум:</b> ${e(data.civilDate)}
 🕊 <b>Црквени датум:</b> ${e(data.churchDate || "Није уписано")}
 📆 <b>Дан:</b> ${e(data.day || "Није уписано")}
+🎵 <b>${formatToneLine(data)}</b>
 
 <b>${e(data.title || "Није уписано")}</b>
 
@@ -470,12 +471,56 @@ function formatHelp() {
 /линкови   Корисни православни линкови`;
 }
 
+function getWeekToneByDateKey(dateKey) {
+  const thomasSunday2026 = "2026-04-19";
+
+  const currentSunday = getSundayOfWeek(dateKey);
+
+  if (currentSunday < thomasSunday2026) {
+    return "";
+  }
+
+  const diffDays = daysBetween(thomasSunday2026, currentSunday);
+  const weeks = Math.floor(diffDays / 7);
+
+  const tone = (weeks % 8) + 1;
+
+  return `${tone}. глас`;
+}
+
+function getSundayOfWeek(dateKey) {
+  const date = new Date(dateKey + "T12:00:00Z");
+  const day = date.getUTCDay(); // 0 = недеља
+
+  date.setUTCDate(date.getUTCDate() - day);
+
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(startKey, endKey) {
+  const start = new Date(startKey + "T12:00:00Z");
+  const end = new Date(endKey + "T12:00:00Z");
+
+  return Math.round((end - start) / 86400000);
+}
+
+function formatToneLine(data) {
+  const tone = getWeekToneByDateKey(data.date);
+
+  if (!tone) {
+    return "Глас: није унето";
+  }
+
+  return `Глас недеље: ${e(tone)}`;
+}
+
 function formatCalendar(data) {
   return `☦️ <b>Календар за данас</b>
 
 📅 <b>Датум:</b> ${e(data.civilDate)}
 🕊 <b>Црквени датум:</b> ${e(data.churchDate || "Није уписано")}
 📆 <b>Дан:</b> ${e(data.day || "Није уписано")}
+🎵 <b>${formatToneLine(data)}</b>
 
 <b>Празник / светитељ дана</b>
 ${e(data.title || "Није уписано")}
@@ -533,6 +578,7 @@ function formatWeek() {
     }
 
     lines.push(`<b>${e(data.civilDate)}, ${e(data.day || "")}</b>`);
+    lines.push(`🎵 ${formatToneLine(data)}`);
     lines.push(e(data.title || "Није уписано"));
     lines.push(formatFastLine(data));
     lines.push("");
