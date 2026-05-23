@@ -4,35 +4,48 @@ export default {
       return new Response("Православни бот ради ☦️", { status: 200 });
     }
 
-    const update = await request.json();
+    let update;
 
-    if (!update.message || !update.message.text) {
+    try {
+      update = await request.json();
+    } catch (error) {
+      return new Response("Bad request", { status: 400 });
+    }
+
+    const message = update.message || update.edited_message;
+
+    if (!message || !message.text) {
       return new Response("OK", { status: 200 });
     }
 
-    const chatId = update.message.chat.id;
-    const text = update.message.text.trim();
+    const chatId = message.chat.id;
+    const text = message.text.trim().toLowerCase();
 
     let reply = "";
 
-    if (text.startsWith("/start") || text.startsWith("/помоћ") || text.startsWith("/pomoc")) {
+    if (
+      text.startsWith("/start") ||
+      text.startsWith("/help") ||
+      text.startsWith("/pomoc") ||
+      text.startsWith("/помоћ")
+    ) {
       reply = `☦️ Православни бот
 
 Команде:
 
-/правила - правила групе
-/молитва - кратка молитва
-/смири - порука за смиривање расправе
-/извор - подсетник за изворе
-/линкови - корисни православни линкови
-/пост - информација о посту
-/сутра - шта је сутра
-/светитељ - светитељ дана
+/pravila - правила групе
+/molitva - кратка молитва
+/smiri - смиривање расправе
+/izvor - подсетник за изворе
+/linkovi - корисни православни линкови
+/post - информација о посту
+/sutra - шта је сутра
+/svetitelj - светитељ дана
 
-Још смо у првој верзији. Календар, пост и светитељи ће бити додати корак по корак.`;
+Ћириличне команде ћемо касније средити, за сада користи латиницу ради Telegram група.`;
     }
 
-    else if (text.startsWith("/правила") || text.startsWith("/pravila")) {
+    else if (text.startsWith("/pravila") || text.startsWith("/правила")) {
       reply = `☦️ Правила групе
 
 1. Без псовки, вређања и личних напада.
@@ -42,7 +55,7 @@ export default {
 5. Чувајмо мир, али не по цену истине.`;
     }
 
-    else if (text.startsWith("/молитва") || text.startsWith("/molitva")) {
+    else if (text.startsWith("/molitva") || text.startsWith("/молитва")) {
       reply = `☦️ Молитва
 
 Господе Исусе Христе, Сине Божији, помилуј ме грешног.
@@ -50,13 +63,13 @@ export default {
 Пресвета Богородице, спаси нас.`;
     }
 
-    else if (text.startsWith("/смири") || text.startsWith("/smiri")) {
+    else if (text.startsWith("/smiri") || text.startsWith("/смири")) {
       reply = `Браћо, станимо мало.
 
 Истина се не брани увредом. Ко хоће да настави, нека настави мирно, са доказом и без личног напада.`;
     }
 
-    else if (text.startsWith("/извор") || text.startsWith("/izvor")) {
+    else if (text.startsWith("/izvor") || text.startsWith("/извор")) {
       reply = `☦️ Подсетник
 
 Кад тврдимо нешто озбиљно о Цркви, светитељима, канонима или историји, дајмо извор.
@@ -64,7 +77,7 @@ export default {
 Без извора лако паднемо у клевету, прелест или празну причу.`;
     }
 
-    else if (text.startsWith("/линкови") || text.startsWith("/linkovi")) {
+    else if (text.startsWith("/linkovi") || text.startsWith("/линкови")) {
       reply = `☦️ Корисни линкови
 
 Охридски пролог:
@@ -80,15 +93,15 @@ https://svetosavlje.org/
 https://spc.rs/`;
     }
 
-    else if (text.startsWith("/пост") || text.startsWith("/post")) {
+    else if (text.startsWith("/post") || text.startsWith("/пост")) {
       reply = `☦️ Пост
 
 Ова команда је спремна, али још није повезана са календаром.
 
-Следећи корак је да додамо податке по датумима, па ће бот говорити да ли је данас пост и који је тип поста.`;
+Следећи корак је да додамо податке по датумима.`;
     }
 
-    else if (text.startsWith("/сутра") || text.startsWith("/sutra")) {
+    else if (text.startsWith("/sutra") || text.startsWith("/сутра")) {
       reply = `☦️ Сутра
 
 Ова команда је спремна, али још није повезана са календаром.
@@ -96,7 +109,7 @@ https://spc.rs/`;
 У следећој верзији ће приказивати светитеље, пост и читања за сутрашњи дан.`;
     }
 
-    else if (text.startsWith("/светитељ") || text.startsWith("/svetitelj")) {
+    else if (text.startsWith("/svetitelj") || text.startsWith("/светитељ")) {
       reply = `☦️ Светитељ дана
 
 Ова команда је спремна, али још није повезана са календаром.
@@ -104,34 +117,23 @@ https://spc.rs/`;
 Следеће додајемо базу светитеља по датумима.`;
     }
 
-    if (reply) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, reply);
+    if (!reply) {
+      return new Response("OK", { status: 200 });
     }
 
-    return new Response("OK", { status: 200 });
+    return new Response(
+      JSON.stringify({
+        method: "sendMessage",
+        chat_id: chatId,
+        text: reply,
+        disable_web_page_preview: true
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
   }
 };
-
-async function sendTelegramMessage(botToken, chatId, text) {
-  if (!botToken) {
-    console.log("BOT_TOKEN is missing");
-    return;
-  }
-
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: text,
-      disable_web_page_preview: true
-    })
-  });
-
-  const result = await response.text();
-  console.log("Telegram sendMessage response:", result);
-}
