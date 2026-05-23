@@ -67,7 +67,13 @@ export default {
     }
 
     else if (isCommand(text, ["/svetitelj", "/светитељ"])) {
-      reply = today ? formatSaintCommand(today) : missingDateMessage(todayKey);
+      if (!today) {
+        reply = missingDateMessage(todayKey);
+      } else if (today.icon) {
+        return sendPhoto(chatId, today.icon, formatSaintCaption(today));
+      } else {
+        reply = formatSaintCommand(today);
+      }
     }
 
     else if (isCommand(text, ["/ikona", "/икона"])) {
@@ -190,6 +196,15 @@ function isCommand(text, commands) {
     text.startsWith(command + "@") ||
     text.startsWith(command + " ")
   );
+}
+
+function formatSaintCaption(data) {
+  return `☦️ <b>Светитељ дана</b>
+
+<b>${e(data.title || "Није уписано")}</b>
+
+<b>Остали помени</b>
+${formatOtherSaints(data.saints, data.title)}`;
 }
 
 function getTodayKey() {
