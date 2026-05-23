@@ -44,8 +44,14 @@ export default {
 5. Чувајмо мир, али не по цену истине.`;
     }
 
-    else if (isCommand(text, ["/kalendar", "/календар"])) {
-      reply = today ? formatCalendar(today) : missingDateMessage(todayKey);
+   else if (isCommand(text, ["/kalendar", "/календар"])) {
+      if (!today) {
+        reply = missingDateMessage(todayKey);
+      } else if (today.icon) {
+        return sendPhoto(chatId, today.icon, formatCalendarCaption(today));
+      } else {
+        reply = formatCalendar(today);
+      }
     }
 
     else if (isCommand(text, ["/post", "/пост"])) {
@@ -188,6 +194,23 @@ function isCommand(text, commands) {
 
 function getTodayKey() {
   return formatDateKey(new Date());
+}
+
+function formatCalendarCaption(data) {
+  return `☦️ <b>Календар за данас</b>
+
+📅 <b>Датум:</b> ${e(data.civilDate)}
+🕊 <b>Црквени датум:</b> ${e(data.churchDate || "Није уписано")}
+📆 <b>Дан:</b> ${e(data.day || "Није уписано")}
+
+<b>${e(data.title || "Није уписано")}</b>
+
+<b>Пост</b>
+${e(data.fasting || "Није уписано")}
+
+<b>Читања</b>
+Апостол: ${e(data.apostle || "Није уписано")}
+Јеванђеље: ${e(data.gospel || "Није уписано")}`;
 }
 
 function getTomorrowKey() {
