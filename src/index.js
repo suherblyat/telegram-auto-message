@@ -206,7 +206,7 @@ function formatCalendarCaption(data) {
 <b>${e(data.title || "Није уписано")}</b>
 
 <b>Пост</b>
-${e(data.fasting || "Није уписано")}
+${formatFastStatus(data)}
 
 <b>Читања</b>
 Апостол: ${e(data.apostle || "Није уписано")}
