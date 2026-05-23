@@ -283,7 +283,7 @@ ${formatOtherSaints(data.saints, data.title)}
 ${e(data.feastType || "Није уписано")}
 
 <b>Пост</b>
-${e(data.fasting || "Није уписано")}
+${formatFastStatus(data)}
 
 <b>Читања</b>
 Апостол: ${e(data.apostle || "Није уписано")}
@@ -307,7 +307,7 @@ ${e(data.title || "Није уписано")}
 ${formatOtherSaints(data.saints, data.title)}
 
 <b>Пост</b>
-${e(data.fasting || "Није уписано")}
+${formatFastStatus(data)}
 
 <b>Читања</b>
 Апостол: ${e(data.apostle || "Није уписано")}
@@ -338,19 +338,15 @@ function formatWeek() {
 }
 
 function formatPost(data) {
-  const isFasting = hasFast(data);
-
   return `☦️ <b>Пост за данас</b>
 
 📅 ${e(data.civilDate)}
 
-${isFasting ? "Данас је пост." : "Данас нема поста."}
-${data.fastingType ? `Тип: ${e(data.fastingType)}` : `Тип: ${e(data.fasting || "Није уписано")}`}
+${formatFastStatus(data)}
 
 <b>Напомена</b>
 ${e(data.note || "Нема напомене.")}`;
 }
-
 function formatSaintCommand(data) {
   return `☦️ <b>Светитељ дана</b>
 
@@ -406,12 +402,35 @@ function formatOtherSaints(saints, title) {
 }
 
 function formatFastLine(data) {
-  return hasFast(data) ? `🔴 Пост: ${e(data.fasting || "да")}` : "🟢 Без поста";
+  return formatFastStatus(data);
 }
 
 function hasFast(data) {
   const fasting = `${data.fasting || ""} ${data.fastingType || ""}`.toLowerCase();
-  return fasting.includes("пост") || fasting.includes("вода") || fasting.includes("уље") || fasting.includes("риба");
+
+  if (
+    fasting.includes("нема поста") ||
+    fasting.includes("без поста") ||
+    fasting.includes("разрешено") ||
+    fasting.includes("разрешење")
+  ) {
+    return false;
+  }
+
+  return (
+    fasting.includes("пост") ||
+    fasting.includes("вода") ||
+    fasting.includes("уље") ||
+    fasting.includes("риба")
+  );
+}
+
+function formatFastStatus(data) {
+  if (hasFast(data)) {
+    return `🔴 Пост: ${e(data.fastingType || data.fasting || "да")}`;
+  }
+
+  return `🟢 Без поста`;
 }
 
 function missingDateMessage(dateKey) {
