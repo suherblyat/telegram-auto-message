@@ -513,10 +513,31 @@ function formatToneLine(data) {
   const tone = getWeekToneByDateKey(data.date);
 
   if (!tone) {
-    return "Глас: није унето";
+    return "Глас није израчунат за овај датум.";
   }
 
   return `Глас недеље: ${e(tone)}`;
+}
+
+function formatToneCommand(data) {
+  const tone = getWeekToneByDateKey(data.date);
+
+  if (!tone) {
+    return `☦️ <b>Глас недеље</b>
+
+📅 ${e(data.civilDate)}
+
+Глас није израчунат за овај датум.`;
+  }
+
+  return `☦️ <b>Глас недеље</b>
+
+📅 ${e(data.civilDate)}
+📆 ${e(data.day || "Није уписано")}
+
+🎵 <b>${e(tone)}</b>
+
+${e(data.title || "")}`;
 }
 
 function formatCalendar(data) {
