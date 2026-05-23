@@ -21,7 +21,7 @@ export const calendar2026 = {
     tropar: "Свети апостоле Симоне, моли милостивога Господа да опроштај грехова подари душама нашим.",
     kondak: "Као звезду пресветлу Црква те данас прославља, апостоле Симоне, и твојим молитвама укрепљује верне.",
     prolog: "Охридски пролог за 10. мај: Свети апостол Симон Зилот.",
-    icon: "https://github.com/suherblyat/telegram-auto-message/blob/e8831f39a8ec642f6ae75ce75354d5d8356813a9/src/assets/icons/epifanije-kiparski.jpg",
+    icon: "https://github.com/suherblyat/telegram-auto-message/blob/e8831f39a8ec642f6ae75ce75354d5d8356813a9/src/assets/icons/epifanije-kiparski.jpg?raw=true",
 
     note: "Дан после Вазнесења Господњег, у периоду од Васкрса до Педесетнице."
   },
