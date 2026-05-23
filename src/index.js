@@ -21,6 +21,7 @@ export default {
     }
 
     const chatId = message.chat.id;
+    const threadId = message.message_thread_id;
     const text = message.text.trim().toLowerCase();
 
     const todayKey = getTodayKey();
@@ -44,11 +45,11 @@ export default {
 5. Чувајмо мир, али не по цену истине.`;
     }
 
-   else if (isCommand(text, ["/kalendar", "/календар"])) {
+    else if (isCommand(text, ["/kalendar", "/календар"])) {
       if (!today) {
         reply = missingDateMessage(todayKey);
       } else if (today.icon) {
-        return sendPhoto(chatId, today.icon, formatCalendarCaption(today));
+        return sendPhoto(chatId, today.icon, formatCalendarCaption(today), threadId);
       } else {
         reply = formatCalendar(today);
       }
@@ -70,7 +71,7 @@ export default {
       if (!today) {
         reply = missingDateMessage(todayKey);
       } else if (today.icon) {
-        return sendPhoto(chatId, today.icon, formatSaintCaption(today));
+        return sendPhoto(chatId, today.icon, formatSaintCaption(today), threadId);
       } else {
         reply = formatSaintCommand(today);
       }
@@ -81,14 +82,14 @@ export default {
         reply = missingDateMessage(todayKey);
       } else if (!today.icon) {
         reply = `☦️ <b>Икона дана</b>
-    
-    ${e(today.title || "Није уписано")}
-    
-    Икона још није додата.`;
+
+${e(today.title || "Није уписано")}
+
+Икона још није додата.`;
       } else {
         return sendPhoto(chatId, today.icon, `☦️ <b>Икона дана</b>
-    
-    ${e(today.title || "Није уписано")}`);
+
+${e(today.title || "Није уписано")}`, threadId);
       }
     }
 
@@ -150,19 +151,25 @@ https://spc.rs/`;
       return new Response("OK", { status: 200 });
     }
 
-    return sendMessage(chatId, reply);
+    return sendMessage(chatId, reply, threadId);
   }
 };
 
-function sendMessage(chatId, text) {
+function sendMessage(chatId, text, threadId = undefined) {
+  const payload = {
+    method: "sendMessage",
+    chat_id: chatId,
+    text: text,
+    parse_mode: "HTML",
+    disable_web_page_preview: true
+  };
+
+  if (threadId !== undefined && threadId !== null) {
+    payload.message_thread_id = threadId;
+  }
+
   return new Response(
-    JSON.stringify({
-      method: "sendMessage",
-      chat_id: chatId,
-      text: text,
-      parse_mode: "HTML",
-      disable_web_page_preview: true
-    }),
+    JSON.stringify(payload),
     {
       status: 200,
       headers: {
@@ -172,15 +179,21 @@ function sendMessage(chatId, text) {
   );
 }
 
-function sendPhoto(chatId, photoUrl, caption) {
+function sendPhoto(chatId, photoUrl, caption, threadId = undefined) {
+  const payload = {
+    method: "sendPhoto",
+    chat_id: chatId,
+    photo: photoUrl,
+    caption: caption,
+    parse_mode: "HTML"
+  };
+
+  if (threadId !== undefined && threadId !== null) {
+    payload.message_thread_id = threadId;
+  }
+
   return new Response(
-    JSON.stringify({
-      method: "sendPhoto",
-      chat_id: chatId,
-      photo: photoUrl,
-      caption: caption,
-      parse_mode: "HTML"
-    }),
+    JSON.stringify(payload),
     {
       status: 200,
       headers: {
@@ -362,6 +375,7 @@ ${formatFastStatus(data)}
 <b>Напомена</b>
 ${e(data.note || "Нема напомене.")}`;
 }
+
 function formatSaintCommand(data) {
   return `☦️ <b>Светитељ дана</b>
 
