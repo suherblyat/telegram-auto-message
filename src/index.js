@@ -1,3 +1,5 @@
+import { calendar2026 } from "./data/calendar-2026.js";
+
 export default {
   async fetch(request, env) {
     if (request.method !== "POST") {
@@ -21,6 +23,11 @@ export default {
     const chatId = message.chat.id;
     const text = message.text.trim().toLowerCase();
 
+    const todayKey = getTodayKey();
+    const tomorrowKey = getTomorrowKey();
+    const today = calendar2026[todayKey];
+    const tomorrow = calendar2026[tomorrowKey];
+
     let reply = "";
 
     if (isCommand(text, ["/start", "/help", "/pomoc", "/помоћ"])) {
@@ -42,13 +49,11 @@ export default {
 */кондак* - кондак дана
 */молитва* - кратка молитва
 */цитат* - насумичан православни цитат
-*/линкови* - корисни православни линкови
-
-Напомена: календарске команде су тренутно припремљене, а праве дневне податке додајемо у следећем кораку.`;
+*/линкови* - корисни православни линкови`;
     }
 
     else if (isCommand(text, ["/pravila", "/правила"])) {
-      reply = `☦️ Правила групе
+      reply = `☦️ *Правила групе*
 
 1. Без псовки, вређања и личних напада.
 2. Критикуј аргумент, не човека.
@@ -58,92 +63,95 @@ export default {
     }
 
     else if (isCommand(text, ["/kalendar", "/календар"])) {
-      reply = `☦️ Календар
-
-Ова команда је спремна, али још није повезана са дневним календаром.
-
-Када додамо базу по датумима, овде ће бити:
-
-Светитељ дана
-Празник
-Пост
-Апостол
-Јеванђеље
-Тропар и кондак`;
+      reply = today ? formatCalendar(today) : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/post", "/пост"])) {
-      reply = `☦️ Пост
+      reply = today
+        ? `☦️ *Пост за данас*
 
-Ова команда је спремна, али још није повезана са календаром.
+Датум: ${today.civilDate}
+Дан: ${today.day}
 
-Када додамо податке по датумима, бот ће говорити да ли је данас пост и који је тип поста.`;
+Пост: ${today.fasting || "Није уписано"}
+Тип: ${today.fastingType || "Није уписано"}
+
+Напомена:
+${today.note || "Нема напомене."}`
+        : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/sutra", "/сутра"])) {
-      reply = `☦️ Сутра
-
-Ова команда је спремна, али још није повезана са календаром.
-
-У следећој верзији ће приказивати светитеље, пост и читања за сутрашњи дан.`;
+      reply = tomorrow ? formatTomorrow(tomorrow) : missingDateMessage(tomorrowKey);
     }
 
     else if (isCommand(text, ["/nedelja", "/недеља"])) {
-      reply = `☦️ Недељни преглед
-
-Ова команда је спремна, али још није повезана са календаром.
-
-Када додамо базу, бот ће приказати преглед наредних 7 дана.`;
+      reply = formatWeek();
     }
 
     else if (isCommand(text, ["/svetitelj", "/светитељ"])) {
-      reply = `☦️ Светитељ дана
+      reply = today
+        ? `☦️ *Светитељ / празник дана*
 
-Ова команда је спремна, али још није повезана са календаром.
+${today.title || "Није уписано"}
 
-Следеће додајемо базу светитеља по датумима.`;
+${formatSaints(today.saints)}`
+        : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/ikona", "/икона"])) {
-      reply = `☦️ Икона дана
+      reply = today
+        ? `☦️ *Икона дана*
 
-Ова команда је спремна.
+${today.title || "Није уписано"}
 
-Следећи корак је да додамо слике икона по датумима.`;
+Путања слике:
+${today.icon || "Икона још није додата."}`
+        : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/svpismo", "/svpisмо", "/свписмо"])) {
-      reply = `☦️ Свето Писмо
+      reply = today
+        ? `☦️ *Свето Писмо за данас*
 
-Дневна читања још нису повезана са календаром.
+Апостол:
+${today.apostle || "Није уписано"}
 
-За сада можеш читати Свето Писмо овде:
-https://www.svetopismo.info/`;
+Јеванђеље:
+${today.gospel || "Није уписано"}`
+        : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/prolog", "/пролог"])) {
-      reply = `☦️ Охридски пролог
+      reply = today
+        ? `☦️ *Охридски пролог*
 
-Данашњи Пролог још није повезан са ботом.
-
-За сада можеш читати овде:
-https://www.pravoslavnikalendar.rs/prolog/`;
+${today.prolog || "Пролог још није уписан за овај датум."}`
+        : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/tropar", "/тропар"])) {
-      reply = `☦️ Тропар дана
+      reply = today
+        ? `☦️ *Тропар дана*
 
-Ова команда је спремна, али још није повезана са базом тропара.`;
+${today.title || ""}
+
+${today.tropar || "Тропар још није уписан за овај датум."}`
+        : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/kondak", "/кондак"])) {
-      reply = `☦️ Кондак дана
+      reply = today
+        ? `☦️ *Кондак дана*
 
-Ова команда је спремна, али још није повезана са базом кондака.`;
+${today.title || ""}
+
+${today.kondak || "Кондак још није уписан за овај датум."}`
+        : missingDateMessage(todayKey);
     }
 
     else if (isCommand(text, ["/molitva", "/молитва"])) {
-      reply = `☦️ Молитва
+      reply = `☦️ *Молитва*
 
 Господе Исусе Христе, Сине Божији, помилуј ме грешног.
 
@@ -163,7 +171,7 @@ https://www.pravoslavnikalendar.rs/prolog/`;
     }
 
     else if (isCommand(text, ["/linkovi", "/линкови"])) {
-      reply = `☦️ Корисни линкови
+      reply = `☦️ *Корисни линкови*
 
 Охридски пролог:
 https://www.pravoslavnikalendar.rs/prolog/
@@ -182,23 +190,27 @@ https://spc.rs/`;
       return new Response("OK", { status: 200 });
     }
 
-    return new Response(
-      JSON.stringify({
-        method: "sendMessage",
-        chat_id: chatId,
-        text: reply,
-        parse_mode: "Markdown",
-        disable_web_page_preview: true
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json"
-        }
-      }
-    );
+    return sendMessage(chatId, reply);
   }
 };
+
+function sendMessage(chatId, text) {
+  return new Response(
+    JSON.stringify({
+      method: "sendMessage",
+      chat_id: chatId,
+      text: text,
+      parse_mode: "Markdown",
+      disable_web_page_preview: true
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      }
+    }
+  );
+}
 
 function isCommand(text, commands) {
   return commands.some((command) =>
@@ -206,4 +218,123 @@ function isCommand(text, commands) {
     text.startsWith(command + "@") ||
     text.startsWith(command + " ")
   );
+}
+
+function getTodayKey() {
+  return formatDateKey(new Date());
+}
+
+function getTomorrowKey() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return formatDateKey(date);
+}
+
+function formatDateKey(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Vienna",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+
+  const year = parts.find((p) => p.type === "year").value;
+  const month = parts.find((p) => p.type === "month").value;
+  const day = parts.find((p) => p.type === "day").value;
+
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysKey(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return formatDateKey(date);
+}
+
+function formatCalendar(data) {
+  return `☦️ *Календар*
+
+Датум: ${data.civilDate}
+Црквени датум: ${data.churchDate || "Није уписано"}
+Дан: ${data.day}
+
+*${data.title || "Није уписано"}*
+
+Светитељи:
+${formatSaints(data.saints)}
+
+Тип празника:
+${data.feastType || "Није уписано"}
+
+Пост:
+${data.fasting || "Није уписано"}
+${data.fastingType ? `Тип: ${data.fastingType}` : ""}
+
+Апостол:
+${data.apostle || "Није уписано"}
+
+Јеванђеље:
+${data.gospel || "Није уписано"}
+
+Напомена:
+${data.note || "Нема напомене."}`;
+}
+
+function formatTomorrow(data) {
+  return `☦️ *Сутра*
+
+Датум: ${data.civilDate}
+Црквени датум: ${data.churchDate || "Није уписано"}
+Дан: ${data.day}
+
+*${data.title || "Није уписано"}*
+
+Светитељи:
+${formatSaints(data.saints)}
+
+Пост:
+${data.fasting || "Није уписано"}
+${data.fastingType ? `Тип: ${data.fastingType}` : ""}
+
+Апостол:
+${data.apostle || "Није уписано"}
+
+Јеванђеље:
+${data.gospel || "Није уписано"}`;
+}
+
+function formatWeek() {
+  let lines = ["☦️ *Наредних 7 дана*", ""];
+
+  for (let i = 0; i < 7; i++) {
+    const key = addDaysKey(i);
+    const data = calendar2026[key];
+
+    if (!data) {
+      lines.push(`${key}: није уписано`);
+      continue;
+    }
+
+    lines.push(`${data.civilDate} - ${data.day}`);
+    lines.push(`${data.title || "Није уписано"}`);
+    lines.push(`Пост: ${data.fasting || "Није уписано"}`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function formatSaints(saints) {
+  if (!saints || saints.length === 0) {
+    return "Није уписано";
+  }
+
+  return saints.map((saint) => `- ${saint}`).join("\n");
+}
+
+function missingDateMessage(dateKey) {
+  return `☦️ За датум ${dateKey} још нису додати подаци у календар.
+
+Додај тај датум у:
+src/data/calendar-2026.js`;
 }
