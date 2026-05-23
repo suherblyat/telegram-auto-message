@@ -160,6 +160,24 @@ function sendMessage(chatId, text) {
   );
 }
 
+function sendPhoto(chatId, photoUrl, caption) {
+  return new Response(
+    JSON.stringify({
+      method: "sendPhoto",
+      chat_id: chatId,
+      photo: photoUrl,
+      caption: caption,
+      parse_mode: "HTML"
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      }
+    }
+  );
+}
+
 function isCommand(text, commands) {
   return commands.some((command) =>
     text === command ||
