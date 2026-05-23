@@ -65,7 +65,19 @@ export default {
     }
 
     else if (isCommand(text, ["/ikona", "/икона"])) {
-      reply = today ? formatIcon(today) : missingDateMessage(todayKey);
+      if (!today) {
+        reply = missingDateMessage(todayKey);
+      } else if (!today.icon) {
+        reply = `☦️ <b>Икона дана</b>
+    
+    ${e(today.title || "Није уписано")}
+    
+    Икона још није додата.`;
+      } else {
+        return sendPhoto(chatId, today.icon, `☦️ <b>Икона дана</b>
+    
+    ${e(today.title || "Није уписано")}`);
+      }
     }
 
     else if (isCommand(text, ["/svpismo", "/svpisмо", "/свписмо"])) {
