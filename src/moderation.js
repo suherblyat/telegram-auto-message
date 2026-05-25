@@ -1,5 +1,7 @@
 export async function handleModeration({ message, env, chatId, threadId, sendGroupMessage }) {
-    if (message.new_chat_members && env.MOD_STATE) {
+  if (!message) return null;
+
+  if (message.new_chat_members && env.MOD_STATE) {
     for (const member of message.new_chat_members) {
       if (!member?.id || member.is_bot) continue;
 
@@ -21,7 +23,8 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
 
     return null;
   }
-  if (!message || !message.text) return null;
+
+  if (!message.text) return null;
   if (message.from?.is_bot) return null;
 
   const originalText = message.text.trim();
@@ -32,6 +35,26 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
   const obvious = getObviousViolation(text, env);
 
   if (obvious) {
+    const memberStatus = await getMemberStatus({ env, chatId, userId: message.from.id });
+    const isPrivileged = memberStatus === "creator" || memberStatus === "administrator";
+
+    if (isPrivileged) {
+      await sendAdminNotice({
+        env,
+        message,
+        chatId,
+        originalText,
+        title: "Опомена админа/власника",
+        severity: "MEDIUM",
+        reason: obvious,
+        recommendation: "Корисник је admin/owner, зато бот не броји казне и не покушава mute/ban.",
+        warningCount: null,
+        moderationAction: "admin_exempt"
+      });
+
+      return sendGroupMessage(chatId, formatPublicWarning(obvious, null), threadId);
+    }
+
     const action = await registerWarning({ env, message, chatId, reason: obvious, originalText });
 
     await sendAdminNotice({
@@ -48,13 +71,39 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
     });
 
     if (action.action === "mute") {
-      await muteUser({ env, chatId, userId: message.from.id, minutes: 10 });
-      return sendGroupMessage(chatId, formatMuteWarning(obvious, action.warningCount), threadId);
+      const result = await muteUser({ env, chatId, userId: message.from.id, minutes: 10 });
+      await sendAdminNotice({
+        env,
+        message,
+        chatId,
+        originalText,
+        title: result.ok ? "Mute извршен" : "Mute није успео",
+        severity: result.ok ? "HIGH" : "ERROR",
+        reason: result.ok ? "Корисник је ућуткан на 10 минута." : result.description,
+        recommendation: result.ok ? "Прати да ли наставља после mute-а." : "Провери да ли је бот admin и има Restrict members дозволу.",
+        warningCount: action.warningCount,
+        moderationAction: "mute_result"
+      });
+
+      return sendGroupMessage(chatId, result.ok ? formatMuteWarning(obvious, action.warningCount) : formatPublicWarning(obvious, action.warningCount), threadId);
     }
 
     if (action.action === "ban") {
-      await banUser({ env, chatId, userId: message.from.id });
-      return sendGroupMessage(chatId, formatBanWarning(obvious, action.warningCount), threadId);
+      const result = await banUser({ env, chatId, userId: message.from.id });
+      await sendAdminNotice({
+        env,
+        message,
+        chatId,
+        originalText,
+        title: result.ok ? "Ban извршен" : "Ban није успео",
+        severity: result.ok ? "CRITICAL" : "ERROR",
+        reason: result.ok ? "Корисник је уклоњен из групе." : result.description,
+        recommendation: result.ok ? "Провери да ли треба очистити поруке ручно." : "Провери да ли је бот admin и има Ban users дозволу. Бот не може да банује owner/admin-а.",
+        warningCount: action.warningCount,
+        moderationAction: "ban_result"
+      });
+
+      return sendGroupMessage(chatId, result.ok ? formatBanWarning(obvious, action.warningCount) : formatPublicWarning(obvious, action.warningCount), threadId);
     }
 
     return sendGroupMessage(chatId, formatPublicWarning(obvious, action.warningCount), threadId);
@@ -167,50 +216,68 @@ async function registerWarning({ env, message, chatId, reason, originalText }) {
   };
 }
 
+async function getMemberStatus({ env, chatId, userId }) {
+  if (!env.BOT_TOKEN || !userId) return "unknown";
+
+  const result = await telegramApi(env, "getChatMember", {
+    chat_id: chatId,
+    user_id: userId
+  });
+
+  return result?.result?.status || "unknown";
+}
+
 async function muteUser({ env, chatId, userId, minutes }) {
-  if (!env.BOT_TOKEN) return;
+  if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN није подешен." };
 
   const untilDate = Math.floor(Date.now() / 1000) + minutes * 60;
 
-  await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/restrictChatMember`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      user_id: userId,
-      until_date: untilDate,
-      permissions: {
-        can_send_messages: false,
-        can_send_audios: false,
-        can_send_documents: false,
-        can_send_photos: false,
-        can_send_videos: false,
-        can_send_video_notes: false,
-        can_send_voice_notes: false,
-        can_send_polls: false,
-        can_send_other_messages: false,
-        can_add_web_page_previews: false,
-        can_change_info: false,
-        can_invite_users: false,
-        can_pin_messages: false,
-        can_manage_topics: false
-      }
-    })
+  return telegramApi(env, "restrictChatMember", {
+    chat_id: chatId,
+    user_id: userId,
+    until_date: untilDate,
+    permissions: {
+      can_send_messages: false,
+      can_send_audios: false,
+      can_send_documents: false,
+      can_send_photos: false,
+      can_send_videos: false,
+      can_send_video_notes: false,
+      can_send_voice_notes: false,
+      can_send_polls: false,
+      can_send_other_messages: false,
+      can_add_web_page_previews: false,
+      can_change_info: false,
+      can_invite_users: false,
+      can_pin_messages: false,
+      can_manage_topics: false
+    }
   });
 }
 
 async function banUser({ env, chatId, userId }) {
-  if (!env.BOT_TOKEN) return;
+  if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN није подешен." };
 
-  await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/banChatMember`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      user_id: userId,
-      revoke_messages: false
-    })
+  return telegramApi(env, "banChatMember", {
+    chat_id: chatId,
+    user_id: userId,
+    revoke_messages: false
   });
+}
+
+async function telegramApi(env, method, body) {
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json().catch(() => null);
+    return data || { ok: false, description: `Telegram API није вратио JSON. HTTP ${response.status}` };
+  } catch (error) {
+    return { ok: false, description: error?.message || "Telegram API request није успео." };
+  }
 }
 
 function calculateRisk(text, message, env = {}) {
@@ -333,7 +400,7 @@ ${text.slice(0, 2000)}
 }
 
 async function sendAdminNotice({ env, message, chatId, originalText, title, severity, reason, recommendation, risk, warningCount, moderationAction }) {
-  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
+  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return { ok: false, description: "BOT_TOKEN или ADMIN_CHAT_ID није подешен." };
 
   const user = message.from?.username
     ? `@${message.from.username}`
@@ -361,15 +428,11 @@ async function sendAdminNotice({ env, message, chatId, originalText, title, seve
     `<b>Предлог:</b> ${escapeHtml(recommendation || "Провери ручно.")}\n\n` +
     `<b>Порука:</b>\n${escapeHtml(originalText.slice(0, 3000))}`;
 
-  await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: env.ADMIN_CHAT_ID,
-      text: report,
-      parse_mode: "HTML",
-      disable_web_page_preview: true
-    })
+  return telegramApi(env, "sendMessage", {
+    chat_id: env.ADMIN_CHAT_ID,
+    text: report,
+    parse_mode: "HTML",
+    disable_web_page_preview: true
   });
 }
 
