@@ -44,7 +44,7 @@ if (moderationResponse) {
 
     let reply = "";
 
-    if (isCommand(text, ["/chatid", "/чатид"])) {
+    if (isCommand(text, ["/chatid", "/четид"])) {
       reply = `Chat ID: <code>${chatId}</code>`;
     }
 
