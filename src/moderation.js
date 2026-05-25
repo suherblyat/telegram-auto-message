@@ -1,4 +1,26 @@
 export async function handleModeration({ message, env, chatId, threadId, sendGroupMessage }) {
+    if (message.new_chat_members && env.MOD_STATE) {
+    for (const member of message.new_chat_members) {
+      if (!member?.id || member.is_bot) continue;
+
+      const key = `warn:${chatId}:${member.id}`;
+      await env.MOD_STATE.delete(key);
+
+      await sendAdminNotice({
+        env,
+        message: { ...message, from: member },
+        chatId,
+        originalText: "Корисник је ушао у групу. Опомене су ресетоване.",
+        title: "Reset опомена",
+        severity: "LOW",
+        reason: "Корисник је поново ушао у групу.",
+        recommendation: "Број опомена је обрисан за овог корисника.",
+        moderationAction: "reset_warnings"
+      });
+    }
+
+    return null;
+  }
   if (!message || !message.text) return null;
   if (message.from?.is_bot) return null;
 
