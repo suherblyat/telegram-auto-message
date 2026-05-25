@@ -17,12 +17,29 @@ export default {
 
     const message = update.message || update.edited_message;
 
-    if (!message || !message.text) {
+    if (!message) {
       return new Response("OK", { status: 200 });
     }
-
+    
     const chatId = message.chat.id;
     const threadId = message.message_thread_id;
+    
+    const moderationResponse = await handleModeration({
+      message,
+      env,
+      chatId,
+      threadId,
+      sendGroupMessage: sendMessage
+    });
+    
+    if (moderationResponse) {
+      return moderationResponse;
+    }
+    
+    if (!message.text) {
+      return new Response("OK", { status: 200 });
+    }
+    
     const text = message.text.trim().toLowerCase();
 
     const moderationResponse = await handleModeration({
