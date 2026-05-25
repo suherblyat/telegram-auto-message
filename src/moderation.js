@@ -236,15 +236,23 @@ async function sendAdminNotice({ env, message, chatId, originalText, title, seve
 }
 
 async function sendAdminRaw(env, text) {
-  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return { ok: false, description: "BOT_TOKEN или ADMIN_CHAT_ID није подешен у runtime env." };
-  return telegramApi(env, "sendMessage", {
+  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) {
+    return { ok: false, description: "BOT_TOKEN или ADMIN_CHAT_ID није подешен у runtime env." };
+  }
+
+  const payload = {
     chat_id: env.ADMIN_CHAT_ID,
     text,
     parse_mode: "HTML",
     disable_web_page_preview: true
-  });
-}
+  };
 
+  if (env.ADMIN_THREAD_ID) {
+    payload.message_thread_id = Number(env.ADMIN_THREAD_ID);
+  }
+
+  return telegramApi(env, "sendMessage", payload);
+}
 async function telegramApi(env, method, body) {
   try {
     const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
