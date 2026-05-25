@@ -25,14 +25,16 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
   if (message.from?.is_bot) return null;
 
   const originalText = message.text.trim();
-  const text = normalizeText(originalText);
+  const commandText = originalText.toLowerCase().trim();
 
-  if (isCommand(text, ["/admintest", "/админтест"])) {
+  if (isCommand(commandText, ["/admintest", "/админтест"])) {
     const result = await sendAdminRaw(env, "✅ Admin test из Worker-а ради. Ако видиш ово, ADMIN_CHAT_ID и BOT_TOKEN су runtime исправни.");
     return sendGroupMessage(chatId, formatAdminTestResult(env, result), threadId);
   }
 
-  if (isCommand(text)) return null;
+  if (isCommand(commandText)) return null;
+
+  const text = normalizeText(originalText);
 
   const obvious = getObviousViolation(text, env);
   if (obvious) {
