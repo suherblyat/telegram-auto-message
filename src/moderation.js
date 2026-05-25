@@ -29,7 +29,7 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
 
   if (isCommand(commandText, ["/admintest", "/админтест"])) {
     const result = await sendAdminRaw(env, "✅ Admin test из Worker-а ради. Ако видиш ово, ADMIN_CHAT_ID и BOT_TOKEN су runtime исправни.");
-    return sendGroupMessage(chatId, formatAdminTestResult(env, result), threadId);
+    return sendGroupMessage(chatId, formatAdminTestResult(env, result, threadId), threadId);
   }
 
   if (isCommand(commandText)) return null;
@@ -259,10 +259,12 @@ async function telegramApi(env, method, body) {
   }
 }
 
-function formatAdminTestResult(env, result) {
+function formatAdminTestResult(env, result, currentThreadId = null) {
   return `🧪 <b>Admin test</b>\n\n` +
     `<b>BOT_TOKEN:</b> ${env.BOT_TOKEN ? "постоји" : "НЕ ПОСТОЈИ"}\n` +
     `<b>ADMIN_CHAT_ID:</b> ${escapeHtml(env.ADMIN_CHAT_ID || "НЕ ПОСТОЈИ")}\n` +
+    `<b>ADMIN_THREAD_ID:</b> ${escapeHtml(env.ADMIN_THREAD_ID || "НИЈЕ ПОДЕШЕН")}\n` +
+    `<b>Current thread ID:</b> ${escapeHtml(currentThreadId || "нема thread-а")}\n` +
     `<b>Telegram result:</b> ${escapeHtml(JSON.stringify(result))}`;
 }
 
