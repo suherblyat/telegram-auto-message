@@ -17,13 +17,20 @@ export default {
 
     const message = update.message || update.edited_message;
 
-    if (message?.text && !message.from?.is_bot) {
-      const originalText = message.text.trim();
-      const commandText = originalText.toLowerCase();
+    if (!message || message.from?.is_bot) {
+      return originalWorker.fetch(request, env, ctx);
+    }
 
-      if (isReportCommand(commandText)) {
-        return handleReportCommand({ message, env, originalText });
-      }
+    const originalText = getMessageText(message).trim();
+    const commandText = String(message.text || "").trim().toLowerCase();
+
+    if (message.text && isReportCommand(commandText)) {
+      return handleReportCommand({ message, env, originalText: message.text.trim() });
+    }
+
+    const hardDecision = await hardModerationCheck({ message, env, originalText });
+    if (hardDecision) {
+      return hardDecision;
     }
 
     return originalWorker.fetch(request, env, ctx);
@@ -65,6 +72,104 @@ async function handleReportCommand({ message, env, originalText }) {
   );
 }
 
+async function hardModerationCheck({ message, env, originalText }) {
+  const chatId = message.chat.id;
+  const threadId = message.message_thread_id;
+  const text = normalizeText(originalText);
+  const userId = message.from?.id;
+
+  if (!userId) return null;
+
+  const mediaDecision = getBlockedMediaDecision(message, env);
+  const textDecision = getSevereTextDecision(text);
+  const decision = textDecision || mediaDecision;
+
+  if (!decision) return null;
+
+  const status = await getMemberStatus({ env, chatId, userId });
+  const isPrivileged = status === "creator" || status === "administrator";
+
+  if (isPrivileged) {
+    await sendAdminAlert({
+      env,
+      title: "High risk од admin-а/owner-а",
+      severity: "HIGH",
+      action: "admin_exempt",
+      reason: decision.reason,
+      message,
+      originalText,
+      extra: "Бот не банује admin/owner налоге. Провери ручно."
+    });
+    return sendGroupMessage(chatId, "☦️ <b>Опомена</b>\n\nПорука је означена као тежак прекршај, али корисник је admin/owner. Админи су обавештени.", threadId);
+  }
+
+  const deleteResult = await telegramApi(env, "deleteMessage", {
+    chat_id: chatId,
+    message_id: message.message_id
+  });
+
+  const banResult = await telegramApi(env, "banChatMember", {
+    chat_id: chatId,
+    user_id: userId,
+    revoke_messages: true
+  });
+
+  await sendAdminAlert({
+    env,
+    title: banResult.ok ? "High risk ban" : "High risk ban није успео",
+    severity: banResult.ok ? "CRITICAL" : "ERROR",
+    action: "delete_and_ban",
+    reason: decision.reason,
+    message,
+    originalText,
+    extra:
+      `deleteMessage: ${JSON.stringify(deleteResult)}\n` +
+      `banChatMember: ${JSON.stringify(banResult)}\n` +
+      "Бот је покушао да обрише поруку и трајно банује корисника. За брисање старијих порука користи се Telegram revoke_messages, колико Telegram дозволи."
+  });
+
+  if (!banResult.ok) {
+    return sendGroupMessage(chatId, "⚠️ Тежак прекршај је детектован, али ban није успео. Провери да ли бот има Ban users и Delete messages дозволе.", threadId);
+  }
+
+  return sendGroupMessage(chatId, "⛔ Корисник је уклоњен из групе због тешког прекршаја.", threadId);
+}
+
+function getBlockedMediaDecision(message, env) {
+  const blockGifs = String(env.BLOCK_GIFS_AND_STICKERS || "true").toLowerCase() !== "false";
+  if (!blockGifs) return null;
+
+  const isGifDocument = message.document?.mime_type === "image/gif";
+  if (message.animation || message.sticker || isGifDocument) {
+    return { reason: "забрањен GIF/стикер/анимација у приватно модерираној групи" };
+  }
+
+  return null;
+}
+
+function getSevereTextDecision(text) {
+  if (!text) return null;
+
+  const hasSacredTarget = includesAny(text, SACRED_TARGETS);
+  const hasHardRoot = includesAny(text, HARD_ROOTS);
+  const hasSexualTopic = includesAny(text, SEXUAL_ROOTS);
+  const hasDirectAttack = includesAny(text, ATTACK_PATTERNS);
+
+  if (hasSacredTarget && hasHardRoot) {
+    return { reason: "псовка или вулгарност усмерена на светињу" };
+  }
+
+  if (hasSexualTopic && hasHardRoot) {
+    return { reason: "вулгаран/саблажњив сексуални говор" };
+  }
+
+  if (hasDirectAttack && hasHardRoot) {
+    return { reason: "тешка лична увреда са вулгарношћу" };
+  }
+
+  return null;
+}
+
 function getReportDetails(originalText) {
   const note = originalText.replace(/^\/\S+\s*/u, "").trim();
   const mentionedUser = (note.match(/@[a-zA-Z0-9_]{3,32}/) || [""])[0];
@@ -93,9 +198,33 @@ async function sendUserReport({ env, message, chatId, threadId, details }) {
     (details.note ? `<b>Напомена:</b> ${escapeHtml(details.note.slice(0, 1000))}\n` : "") +
     `\n<b>Пријављена порука:</b>\n${escapeHtml(reportedText.slice(0, 3000))}`;
 
+  return sendAdminRaw(env, report);
+}
+
+async function sendAdminAlert({ env, title, severity, action, reason, message, originalText, extra }) {
+  const report = `⚠️ <b>${escapeHtml(title)}</b>\n\n` +
+    `<b>Корисник:</b> ${escapeHtml(formatUser(message.from))}\n` +
+    `<b>User ID:</b> ${escapeHtml(message.from?.id || "?")}\n` +
+    `<b>Chat ID:</b> ${escapeHtml(message.chat?.id || "?")}\n` +
+    `<b>Thread ID:</b> ${escapeHtml(message.message_thread_id || "нема")}\n` +
+    `<b>Message ID:</b> ${escapeHtml(message.message_id || "?")}\n` +
+    `<b>Ниво:</b> ${escapeHtml(severity)}\n` +
+    `<b>Акција:</b> ${escapeHtml(action)}\n` +
+    `<b>Разлог:</b> ${escapeHtml(reason)}\n\n` +
+    `<b>Порука:</b>\n${escapeHtml(originalText.slice(0, 3000))}\n\n` +
+    `<b>Технички детаљи:</b>\n${escapeHtml(extra || "-")}`;
+
+  return sendAdminRaw(env, report);
+}
+
+async function sendAdminRaw(env, text) {
+  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) {
+    return { ok: false, description: "BOT_TOKEN или ADMIN_CHAT_ID није подешен." };
+  }
+
   const payload = {
     chat_id: env.ADMIN_CHAT_ID,
-    text: report,
+    text,
     parse_mode: "HTML",
     disable_web_page_preview: true
   };
@@ -104,13 +233,23 @@ async function sendUserReport({ env, message, chatId, threadId, details }) {
     payload.message_thread_id = Number(env.ADMIN_THREAD_ID);
   }
 
+  return telegramApi(env, "sendMessage", payload);
+}
+
+async function getMemberStatus({ env, chatId, userId }) {
+  const result = await telegramApi(env, "getChatMember", { chat_id: chatId, user_id: userId });
+  return result?.result?.status || "unknown";
+}
+
+async function telegramApi(env, method, body) {
+  if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN није подешен." };
+
   try {
-    const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(body)
     });
-
     return await response.json();
   } catch (error) {
     return { ok: false, description: error?.message || "Telegram request није успео." };
@@ -143,9 +282,63 @@ function formatUser(user) {
 }
 
 function getMessageText(message) {
-  if (!message) return "Нема поруке.";
-  return message.text || message.caption || "[порука нема текст, могуће слика/стикер/фајл]";
+  if (!message) return "";
+  return message.text || message.caption || "";
 }
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/š/g, "s").replace(/č/g, "c").replace(/ć/g, "c").replace(/ž/g, "z").replace(/đ/g, "dj")
+    .replace(/ђ/g, "дј")
+    .replace(/[0]/g, "o").replace(/[1!]/g, "i").replace(/[3]/g, "e").replace(/[4@]/g, "a").replace(/[5$]/g, "s").replace(/[7]/g, "t")
+    .replace(/[?.:,;()\[\]{}"'`´“”‘’_+=*~|\\/<>-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function includesAny(text, terms) {
+  return terms.some((term) => text.includes(term));
+}
+
+function s(...codes) {
+  return String.fromCharCode(...codes);
+}
+
+const HARD_ROOTS = [
+  s(106, 101, 98),
+  s(107, 117, 114),
+  s(112, 105, 122),
+  s(112, 105, 99, 107),
+  s(103, 111, 118, 110),
+  s(115, 114, 97, 110),
+  s(111, 100, 106, 101, 98),
+  s(111, 108, 111, 115),
+  s(111, 108, 111, 353),
+  s(111, 108, 111, 115),
+  s(111, 108, 111, 115),
+  s(108, 111, 112, 111, 118),
+  s(111, 108, 111, 353),
+  s(111, 108, 111, 115),
+  s(108, 111, 112, 111, 118),
+  "јеб", "кур", "пиз", "пич", "говн", "срањ", "одјеб", "олош", "лопов"
+];
+
+const SEXUAL_ROOTS = [
+  "блуд", "разврат", "порно", "секс", "проститу", "похот", "голотињ",
+  "blud", "razvrat", "porno", "seks", "prostitu", "pohot", "golotinj"
+];
+
+const SACRED_TARGETS = [
+  "бог", "господ", "исус", "христ", "свети дух", "богородиц", "пресвет", "светитељ", "икон", "крст", "литурги", "причешћ", "јеванђељ", "цркв", "храм", "манастир", "мошт",
+  "bog", "gospod", "isus", "hrist", "sveti duh", "bogorodic", "presvet", "svetitelj", "ikon", "krst", "liturg", "pricesc", "jevandjel", "crkv", "hram", "manastir", "most"
+];
+
+const ATTACK_PATTERNS = [
+  "мајку ти", "маму ти", "матер ти", "majku ti", "mamu ti", "mater ti",
+  "глуп си", "glup si", "дебил", "debil", "идиот", "idiot", "ретард", "retard",
+  "будало", "budalo", "стоко", "stoko"
+];
 
 function escapeHtml(value) {
   return String(value ?? "")
