@@ -10,11 +10,32 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
   const obvious = getObviousViolation(text, env);
 
   if (obvious) {
-    return sendGroupMessage(
+    const action = await registerWarning({ env, message, chatId, reason: obvious, originalText });
+
+    await sendAdminNotice({
+      env,
+      message,
       chatId,
-      formatPublicWarning(obvious),
-      threadId
-    );
+      originalText,
+      title: action.title || "Јавна опомена",
+      severity: action.severity || "HIGH",
+      reason: obvious,
+      recommendation: action.recommendation || "Бот је јавно опоменуо корисника без AI анализе, јер је прекршај очигледан.",
+      warningCount: action.warningCount,
+      moderationAction: action.action
+    });
+
+    if (action.action === "mute") {
+      await muteUser({ env, chatId, userId: message.from.id, minutes: 10 });
+      return sendGroupMessage(chatId, formatMuteWarning(obvious, action.warningCount), threadId);
+    }
+
+    if (action.action === "ban") {
+      await banUser({ env, chatId, userId: message.from.id });
+      return sendGroupMessage(chatId, formatBanWarning(obvious, action.warningCount), threadId);
+    }
+
+    return sendGroupMessage(chatId, formatPublicWarning(obvious, action.warningCount), threadId);
   }
 
   const risk = calculateRisk(text, message, env);
@@ -24,7 +45,17 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
   const aiResult = await analyzeWithAI({ text: originalText, risk, message, env });
 
   if (aiResult.decision !== "OK") {
-    await sendAdminReport({ env, message, chatId, originalText, risk, aiResult });
+    await sendAdminNotice({
+      env,
+      message,
+      chatId,
+      originalText,
+      title: "AI модерација",
+      severity: aiResult.severity || "MEDIUM",
+      reason: aiResult.reason || risk.reasons.join(", "),
+      recommendation: aiResult.recommendation || "Провери ручно.",
+      risk
+    });
   }
 
   return null;
@@ -68,6 +99,98 @@ function getObviousViolation(text, env = {}) {
   return null;
 }
 
+async function registerWarning({ env, message, chatId, reason, originalText }) {
+  const userId = message.from?.id;
+  if (!env.MOD_STATE || !userId) {
+    return { warningCount: null, action: "warn", title: "Јавна опомена" };
+  }
+
+  const key = `warn:${chatId}:${userId}`;
+  const existing = await env.MOD_STATE.get(key, "json");
+  const warningCount = Number(existing?.count || 0) + 1;
+
+  await env.MOD_STATE.put(key, JSON.stringify({
+    count: warningCount,
+    lastReason: reason,
+    lastMessage: originalText.slice(0, 500),
+    updatedAt: new Date().toISOString()
+  }), { expirationTtl: 60 * 60 * 24 * 30 });
+
+  if (warningCount >= 5) {
+    return {
+      warningCount,
+      action: "ban",
+      title: "Бан после више опомена",
+      severity: "CRITICAL",
+      recommendation: "Корисник је достигао 5 опомена. Бот покушава ban/kick."
+    };
+  }
+
+  if (warningCount >= 3) {
+    return {
+      warningCount,
+      action: "mute",
+      title: "Mute после 3 опомене",
+      severity: "HIGH",
+      recommendation: "Корисник је достигао 3 опомене. Бот покушава mute на 10 минута."
+    };
+  }
+
+  return {
+    warningCount,
+    action: "warn",
+    title: "Јавна опомена",
+    severity: "HIGH",
+    recommendation: "Бот је јавно опоменуо корисника без AI анализе, јер је прекршај очигледан."
+  };
+}
+
+async function muteUser({ env, chatId, userId, minutes }) {
+  if (!env.BOT_TOKEN) return;
+
+  const untilDate = Math.floor(Date.now() / 1000) + minutes * 60;
+
+  await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/restrictChatMember`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      user_id: userId,
+      until_date: untilDate,
+      permissions: {
+        can_send_messages: false,
+        can_send_audios: false,
+        can_send_documents: false,
+        can_send_photos: false,
+        can_send_videos: false,
+        can_send_video_notes: false,
+        can_send_voice_notes: false,
+        can_send_polls: false,
+        can_send_other_messages: false,
+        can_add_web_page_previews: false,
+        can_change_info: false,
+        can_invite_users: false,
+        can_pin_messages: false,
+        can_manage_topics: false
+      }
+    })
+  });
+}
+
+async function banUser({ env, chatId, userId }) {
+  if (!env.BOT_TOKEN) return;
+
+  await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/banChatMember`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      user_id: userId,
+      revoke_messages: false
+    })
+  });
+}
+
 function calculateRisk(text, message, env = {}) {
   const reasons = [];
   let score = 0;
@@ -76,6 +199,7 @@ function calculateRisk(text, message, env = {}) {
   const sensitiveTheology = hasAny(text, THEOLOGY_SENSITIVE);
   const churchCriticism = hasAny(text, CHURCH_CRITICISM);
   const clergyAccusation = hasAny(text, CLERGY_ACCUSATION);
+  const clergyMoneyAccusation = hasAny(text, CLERGY_TERMS) && hasAny(text, MONEY_ACCUSATION_TERMS);
   const sexualTopic = hasAny(text, SEXUAL_TOPIC);
   const moralDangerTopic = hasAny(text, MORAL_DANGER_TOPIC);
   const occultTopic = hasAny(text, OCCULT_TOPIC);
@@ -86,8 +210,6 @@ function calculateRisk(text, message, env = {}) {
   const extraReviewHit = hasAny(text, extraReviewTerms);
   const longMessage = text.length > 700;
 
-  // Само помињање речи као „јерес“, „секта“, „католик“, „папа“ НЕ дижe ризик.
-  // Ризик расте само кад је то спојено са нападом, ругањем, агресијом или дугачким rant-ом.
   score += addRisk(reasons, sensitiveTheology && aggressiveTone, 3, "осетљива богословска тема + оштар тон");
   score += addRisk(reasons, sensitiveTheology && mockingTone, 3, "осетљива богословска тема + могуће ругање");
   score += addRisk(reasons, sensitiveTheology && churchCriticism, 3, "осетљива богословска тема + критика Цркве");
@@ -96,6 +218,7 @@ function calculateRisk(text, message, env = {}) {
 
   score += addRisk(reasons, churchCriticism, 3, "могућа критика Цркве");
   score += addRisk(reasons, clergyAccusation, 3, "могућа оптужба на свештенство/епископе");
+  score += addRisk(reasons, clergyMoneyAccusation, 4, "оптужба да свештенство краде/узима новац");
   score += addRisk(reasons, sexualTopic, 3, "осетљива морална тема");
   score += addRisk(reasons, moralDangerTopic, 2, "осетљива тема греха/зависности/саблазни");
   score += addRisk(reasons, occultTopic, 3, "окултна/демонска тема");
@@ -103,8 +226,8 @@ function calculateRisk(text, message, env = {}) {
   score += addRisk(reasons, aggressiveTone, 2, "оштрији тон");
   score += addRisk(reasons, mockingTone, 2, "могуће ругање/провокација");
   score += addRisk(reasons, despairFearTone, 2, "страх/паника/очајање");
-  score += addRisk(reasons, extraReviewHit, 3, "поклапање са приватном review листом");
-  score += addRisk(reasons, longMessage && (aggressiveTone || mockingTone || churchCriticism || clergyAccusation), 1, "дугачак оштрији rant");
+  score += addRisk(reasons, extraReviewHit, 4, "поклапање са приватном review листом");
+  score += addRisk(reasons, longMessage && (aggressiveTone || mockingTone || churchCriticism || clergyAccusation || clergyMoneyAccusation), 1, "дугачак оштрији rant");
   score += addRisk(reasons, hasManyQuestionMarks(text) && (aggressiveTone || mockingTone), 1, "провокативан стил питања");
 
   if (message.forward_from || message.forward_from_chat) {
@@ -187,21 +310,33 @@ ${text.slice(0, 2000)}
   }
 }
 
-async function sendAdminReport({ env, message, chatId, originalText, risk, aiResult }) {
+async function sendAdminNotice({ env, message, chatId, originalText, title, severity, reason, recommendation, risk, warningCount, moderationAction }) {
   if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
 
   const user = message.from?.username
     ? `@${message.from.username}`
     : `${message.from?.first_name || "Непознат"} ${message.from?.last_name || ""}`.trim();
 
-  const report = `⚠️ <b>AI модерација</b>\n\n` +
+  const riskLine = risk
+    ? `<b>Локални ризик:</b> ${escapeHtml(risk.score)}\n<b>Локални разлози:</b> ${escapeHtml(risk.reasons.join(", ") || "нема")}\n`
+    : "";
+
+  const countLine = warningCount !== undefined && warningCount !== null
+    ? `<b>Број опомена:</b> ${escapeHtml(warningCount)}\n`
+    : "";
+
+  const actionLine = moderationAction
+    ? `<b>Акција:</b> ${escapeHtml(moderationAction)}\n`
+    : "";
+
+  const report = `⚠️ <b>${escapeHtml(title)}</b>\n\n` +
     `<b>Корисник:</b> ${escapeHtml(user)}\n` +
     `<b>User ID:</b> ${escapeHtml(message.from?.id || "?")}\n` +
     `<b>Chat ID:</b> ${escapeHtml(chatId)}\n` +
-    `<b>Ризик:</b> ${escapeHtml(aiResult.severity || "MEDIUM")} / ${risk.score}\n` +
-    `<b>Локални разлози:</b> ${escapeHtml(risk.reasons.join(", ") || "нема")}\n` +
-    `<b>AI разлог:</b> ${escapeHtml(aiResult.reason || "-")}\n` +
-    `<b>Предлог:</b> ${escapeHtml(aiResult.recommendation || "Провери ручно.")}\n\n` +
+    `<b>Ниво:</b> ${escapeHtml(severity || "MEDIUM")}\n` +
+    countLine + actionLine + riskLine +
+    `<b>Разлог:</b> ${escapeHtml(reason || "-")}\n` +
+    `<b>Предлог:</b> ${escapeHtml(recommendation || "Провери ручно.")}\n\n` +
     `<b>Порука:</b>\n${escapeHtml(originalText.slice(0, 3000))}`;
 
   await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
@@ -216,8 +351,17 @@ async function sendAdminReport({ env, message, chatId, originalText, risk, aiRes
   });
 }
 
-function formatPublicWarning(reason) {
-  return `☦️ <b>Опомена</b>\n\nПазимо на речник и тон. Без псовки, увреда, спама и саблажњивог говора.\n\n<i>Разлог: ${escapeHtml(reason)}</i>`;
+function formatPublicWarning(reason, warningCount) {
+  const countText = warningCount ? `\n\nОпомена: ${warningCount}/3` : "";
+  return `☦️ <b>Опомена</b>\n\nПазимо на речник и тон. Без псовки, увреда, спама и саблажњивог говора.${countText}\n\n<i>Разлог: ${escapeHtml(reason)}</i>`;
+}
+
+function formatMuteWarning(reason, warningCount) {
+  return `☦️ <b>Корисник је ућуткан на 10 минута</b>\n\nРазлог: ${escapeHtml(reason)}\nОпомена: ${escapeHtml(warningCount)}/5`;
+}
+
+function formatBanWarning(reason, warningCount) {
+  return `☦️ <b>Корисник је уклоњен из групе</b>\n\nРазлог: ${escapeHtml(reason)}\nОпомена: ${escapeHtml(warningCount)}`;
 }
 
 function hasAny(text, words) {
@@ -284,13 +428,24 @@ const HARD_VULGARITY = [
   "porno link", "порно линк", "onlyfans", "gole slike", "голе слике", "nudes", "nude"
 ];
 
+const CLERGY_TERMS = [
+  "свештеник", "svestenik", "свештеници", "svestenici", "поп", "pop", "попови", "popovi",
+  "епископ", "episkop", "епископи", "episkopi", "владика", "vladika", "владике", "vladike",
+  "патријарх", "patrijarh", "свештенство", "svestenstvo"
+];
+
+const MONEY_ACCUSATION_TERMS = [
+  "краде", "krade", "краду", "kradu", "лопов", "lopov", "лопови", "lopovi",
+  "узима паре", "uzima pare", "узимају паре", "uzimaju pare", "само паре", "samo pare",
+  "новац", "novac", "бизнис", "biznis", "мафија", "mafija", "наплаћују", "naplacuju"
+];
+
 const THEOLOGY_SENSITIVE = [
   "јерес", "jeres", "јеретик", "jeretik", "јеретици", "jeretici",
   "секта", "sekta", "секташ", "sektas", "секташи", "sektasi",
   "унија", "unija", "унијат", "unijat", "filioque", "филиокве",
   "католик", "katolik", "римокатолик", "rimokatolik", "папа", "papa", "ватикан", "vatikan",
-  "протестант", "protestant", "евангелик", "evangelik", "adventist", "адвентист",
-  "ислам", "islam", "муслиман", "musliman", "мухамед", "muhamed",
+  "протестант", "protestant", "ислам", "islam", "муслиман", "musliman",
   "канон", "kanon", "догма", "dogma", "екумен", "ekumen", "екуменизам", "ekumenizam",
   "раскол", "raskol", "старокалендар", "starokalendar", "новотар", "novotar",
   "сола скриптура", "sola scriptura", "предање", "predanje", "канон писма", "kanon pisma"
@@ -298,7 +453,7 @@ const THEOLOGY_SENSITIVE = [
 
 const CHURCH_CRITICISM = [
   "црква само", "crkva samo", "црква је бизнис", "crkva je biznis", "све је то бизнис", "sve je to biznis",
-  "црква узима паре", "crkva uzima pare", "само узимају паре", "samo uzimaju pare", "uzimaju pare", "узимају паре",
+  "црква узима паре", "crkva uzima pare", "само узимају паре", "samo uzimaju pare",
   "лажу народ", "lazu narod", "варају народ", "varaju narod", "манипулишу народ", "manipulisu narod",
   "црква пере мозак", "crkva pere mozak", "поповска мафија", "popovska mafija",
   "религија је бајка", "religija je bajka", "православље је мит", "pravoslavlje je mit",
@@ -306,9 +461,8 @@ const CHURCH_CRITICISM = [
 ];
 
 const CLERGY_ACCUSATION = [
-  "попови", "popovi", "попови су", "popovi su", "свештеници су", "svestenici su",
-  "епископи су", "episkopi su", "владике су", "vladike su", "патријарх", "patrijarh",
-  "свештеник је", "svestenik je", "поп је", "pop je", "владика је", "vladika je",
+  "попови су", "popovi su", "свештеници су", "svestenici su", "епископи су", "episkopi su",
+  "владике су", "vladike su", "свештеник је", "svestenik je", "поп је", "pop je", "владика је", "vladika je",
   "купују џипове", "kupuju dzipove", "возе џипове", "voze dzipove", "наплаћују молитве", "naplacuju molitve",
   "сви попови", "svi popovi", "сви свештеници", "svi svestenici", "све владике", "sve vladike"
 ];
