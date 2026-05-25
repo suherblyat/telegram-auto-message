@@ -42,18 +42,6 @@ export default {
     
     const text = message.text.trim().toLowerCase();
 
-    const moderationResponse = await handleModeration({
-      message,
-      env,
-      chatId,
-      threadId,
-      sendGroupMessage: sendMessage
-    });
-
-if (moderationResponse) {
-  return moderationResponse;
-}
-
     const todayKey = getTodayKey();
     const tomorrowKey = getTomorrowKey();
     const today = calendar2026[todayKey];
