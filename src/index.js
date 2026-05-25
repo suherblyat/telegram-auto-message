@@ -1,4 +1,5 @@
 import { calendar2026 } from "./data/calendar-2026.js";
+import { handleModeration } from "./moderation.js";
 
 export default {
   async fetch(request, env) {
@@ -23,6 +24,18 @@ export default {
     const chatId = message.chat.id;
     const threadId = message.message_thread_id;
     const text = message.text.trim().toLowerCase();
+
+    const moderationResponse = await handleModeration({
+      message,
+      env,
+      chatId,
+      threadId,
+      sendGroupMessage: sendMessage
+    });
+
+if (moderationResponse) {
+  return moderationResponse;
+}
 
     const todayKey = getTodayKey();
     const tomorrowKey = getTomorrowKey();
