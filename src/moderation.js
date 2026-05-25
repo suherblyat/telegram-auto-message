@@ -32,6 +32,28 @@ export async function handleModeration({ message, env, chatId, threadId, sendGro
     return sendGroupMessage(chatId, formatAdminTestResult(env, result, threadId), threadId);
   }
 
+  if (isCommand(commandText, ["/prijava", "/пријава", "/report"])) {
+    if (!message.reply_to_message) {
+      return sendGroupMessage(
+        chatId,
+        "☦️ <b>Пријава</b>\n\nReply-уј на поруку коју желиш да пријавиш, па онда пошаљи <code>/пријава</code>.",
+        threadId
+      );
+    }
+
+    const result = await sendUserReport({ env, message, chatId, threadId, originalText });
+
+    if (result.ok) {
+      return sendGroupMessage(chatId, "✅ Пријава је послата админима.", threadId);
+    }
+
+    return sendGroupMessage(
+      chatId,
+      `⚠️ Пријава није послата. Разлог: ${escapeHtml(result.description || "непозната грешка")}`,
+      threadId
+    );
+  }
+
   if (isCommand(commandText)) return null;
 
   const text = normalizeText(originalText);
@@ -242,6 +264,38 @@ async function muteUser({ env, chatId, userId, minutes }) {
 async function banUser({ env, chatId, userId }) {
   if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN није подешен у runtime env." };
   return telegramApi(env, "banChatMember", { chat_id: chatId, user_id: userId, revoke_messages: false });
+}
+
+async function sendUserReport({ env, message, chatId, threadId, originalText }) {
+  const reporter = formatUser(message.from);
+  const reportedMessage = message.reply_to_message;
+  const reportedUser = formatUser(reportedMessage?.from);
+  const reportedText = getMessageText(reportedMessage);
+  const reportCommandNote = originalText.replace(/^\/\S+\s*/u, "").trim();
+
+  const report = `🚩 <b>Корисничка пријава</b>\n\n` +
+    `<b>Пријавио:</b> ${escapeHtml(reporter)}\n` +
+    `<b>Reporter ID:</b> ${escapeHtml(message.from?.id || "?")}\n` +
+    `<b>Пријављен:</b> ${escapeHtml(reportedUser)}\n` +
+    `<b>Reported ID:</b> ${escapeHtml(reportedMessage?.from?.id || "?")}\n` +
+    `<b>Chat ID:</b> ${escapeHtml(chatId)}\n` +
+    `<b>Thread ID:</b> ${escapeHtml(threadId || "нема")}\n` +
+    `<b>Message ID:</b> ${escapeHtml(reportedMessage?.message_id || "?")}\n` +
+    (reportCommandNote ? `<b>Напомена:</b> ${escapeHtml(reportCommandNote.slice(0, 500))}\n` : "") +
+    `\n<b>Пријављена порука:</b>\n${escapeHtml(reportedText.slice(0, 3000))}`;
+
+  return sendAdminRaw(env, report);
+}
+
+function formatUser(user) {
+  if (!user) return "Непознат";
+  if (user.username) return `@${user.username}`;
+  return `${user.first_name || ""} ${user.last_name || ""}`.trim() || String(user.id || "Непознат");
+}
+
+function getMessageText(message) {
+  if (!message) return "Нема поруке.";
+  return message.text || message.caption || "[порука нема текст, могуће слика/стикер/фајл]";
 }
 
 async function sendAdminNotice({ env, message, chatId, originalText, title, severity, reason, recommendation, risk, warningCount, moderationAction }) {
