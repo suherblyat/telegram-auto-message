@@ -148,13 +148,43 @@ function isCommand(text, commands = null) {
 }
 
 function getObviousViolation(text, env = {}) {
-  if (hasAny(text, HARD_PROFANITY) || hasAny(text, getEnvList(env.EXTRA_HARD_TERMS))) return "псовка / простачки речник";
-  if (hasAny(text, HARD_INSULTS) || hasAny(text, getEnvList(env.EXTRA_HARD_INSULTS))) return "лична увреда";
-  if (hasAny(text, HARD_VULGARITY)) return "вулгаран или саблажњив говор";
+  if (hasProfanity(text, HARD_PROFANITY) || hasProfanity(text, getEnvList(env.EXTRA_HARD_TERMS))) return "псовка / простачки речник";
+  if (hasPhraseOrWordPrefix(text, HARD_INSULTS) || hasPhraseOrWordPrefix(text, getEnvList(env.EXTRA_HARD_INSULTS))) return "лична увреда";
+  if (hasPhraseOrWordPrefix(text, HARD_VULGARITY)) return "вулгаран или саблажњив говор";
   if (hasSpamLink(text)) return "спам линк";
   if (isCapsSpam(text)) return "caps spam";
   if (hasDirectBlasphemy(text)) return "ругање светињама";
   return null;
+}
+
+function hasProfanity(text, terms) {
+  const words = text.split(/\s+/).filter(Boolean);
+
+  return terms.some((term) => {
+    const cleanTerm = normalizeText(term);
+    if (!cleanTerm) return false;
+
+    if (cleanTerm.includes(" ")) {
+      return text.includes(cleanTerm);
+    }
+
+    return words.some((word) => word === cleanTerm || word.startsWith(cleanTerm));
+  });
+}
+
+function hasPhraseOrWordPrefix(text, terms) {
+  const words = text.split(/\s+/).filter(Boolean);
+
+  return terms.some((term) => {
+    const cleanTerm = normalizeText(term);
+    if (!cleanTerm) return false;
+
+    if (cleanTerm.includes(" ")) {
+      return text.includes(cleanTerm);
+    }
+
+    return words.some((word) => word === cleanTerm || word.startsWith(cleanTerm));
+  });
 }
 
 async function registerWarning({ env, message, chatId, reason, originalText }) {
