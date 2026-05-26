@@ -1,4 +1,18 @@
 import originalWorker from "./index.js";
+import { calendar2026 } from "./data/calendar-2026.js";
+
+const FASTING_OVERRIDES = {
+  "2026-05-27": {
+    fasting: "Пост",
+    fastingType: "уље",
+    note: "Исправљено: није разрешење на рибу. Пост је на уљу."
+  },
+  "2026-05-29": {
+    fasting: "Пост",
+    fastingType: "уље",
+    note: "Исправљено: није разрешење на рибу. Пост је на уљу."
+  }
+};
 
 export default {
   async fetch(request, env, ctx) {
@@ -24,6 +38,9 @@ export default {
     const originalText = getMessageText(message).trim();
     const commandText = String(message.text || "").trim().toLowerCase();
 
+    const calendarResponse = handleCalendarOverrideCommand({ message, commandText });
+    if (calendarResponse) return calendarResponse;
+
     if (message.text && isReportCommand(commandText)) {
       return handleReportCommand({ message, env, originalText: message.text.trim() });
     }
@@ -37,6 +54,35 @@ export default {
   }
 };
 
+function handleCalendarOverrideCommand({ message, commandText }) {
+  if (!message.text) return null;
+
+  const chatId = message.chat.id;
+  const threadId = message.message_thread_id;
+
+  if (isCommand(commandText, ["/post", "/пост"])) {
+    const today = getCalendarDay(getTodayKey());
+    return sendGroupMessage(chatId, today ? formatPost(today) : missingDateMessage(getTodayKey()), threadId);
+  }
+
+  if (isCommand(commandText, ["/kalendar", "/календар"])) {
+    const today = getCalendarDay(getTodayKey());
+    return sendGroupMessage(chatId, today ? formatCalendar(today) : missingDateMessage(getTodayKey()), threadId);
+  }
+
+  if (isCommand(commandText, ["/sutra", "/сутра"])) {
+    const tomorrowKey = getTomorrowKey();
+    const tomorrow = getCalendarDay(tomorrowKey);
+    return sendGroupMessage(chatId, tomorrow ? formatTomorrow(tomorrow) : missingDateMessage(tomorrowKey), threadId);
+  }
+
+  if (isCommand(commandText, ["/nedelja", "/недеља"])) {
+    return sendGroupMessage(chatId, formatWeek(), threadId);
+  }
+
+  return null;
+}
+
 function isReportCommand(text) {
   const commands = ["/prijava", "/prijavi", "/пријава", "/пријави", "/report"];
   return commands.some((command) =>
@@ -44,6 +90,111 @@ function isReportCommand(text) {
     text.startsWith(command + " ") ||
     text.startsWith(command + "@")
   );
+}
+
+function isCommand(text, commands) {
+  return commands.some((command) =>
+    text === command ||
+    text.startsWith(command + "@") ||
+    text.startsWith(command + " ")
+  );
+}
+
+function getCalendarDay(dateKey) {
+  const base = calendar2026[dateKey];
+  if (!base) return null;
+  return { ...base, ...(FASTING_OVERRIDES[dateKey] || {}) };
+}
+
+function getTodayKey() {
+  return formatDateKey(new Date());
+}
+
+function getTomorrowKey() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return formatDateKey(date);
+}
+
+function addDaysKey(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return formatDateKey(date);
+}
+
+function formatDateKey(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Vienna",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+
+  const year = parts.find((p) => p.type === "year").value;
+  const month = parts.find((p) => p.type === "month").value;
+  const day = parts.find((p) => p.type === "day").value;
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatCalendar(data) {
+  return `☦️ <b>Календар за данас</b>\n\n` +
+    `📅 <b>Датум:</b> ${escapeHtml(data.civilDate)}\n` +
+    `🕊 <b>Црквени датум:</b> ${escapeHtml(data.churchDate || "Није уписано")}\n` +
+    `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}\n\n` +
+    `<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n` +
+    `<b>Пост</b>\n${formatFastStatus(data)}\n\n` +
+    `<b>Читања</b>\nАпостол: ${escapeHtml(data.apostle || "Није уписано")}\nЈеванђеље: ${escapeHtml(data.gospel || "Није уписано")}\n\n` +
+    `<b>Напомена</b>\n${escapeHtml(data.note || "Нема напомене.")}`;
+}
+
+function formatPost(data) {
+  return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}\n\n${formatFastStatus(data)}\n\n<b>Напомена</b>\n${escapeHtml(data.note || "Нема напомене.")}`;
+}
+
+function formatTomorrow(data) {
+  return `☦️ <b>Сутра</b>\n\n📅 ${escapeHtml(data.civilDate)}\n📆 ${escapeHtml(data.day || "Није уписано")}\n\n<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n<b>Пост</b>\n${formatFastStatus(data)}`;
+}
+
+function formatWeek() {
+  const lines = ["☦️ <b>Наредних 7 дана</b>", ""];
+
+  for (let i = 0; i < 7; i++) {
+    const key = addDaysKey(i);
+    const data = getCalendarDay(key);
+
+    if (!data) {
+      lines.push(`<b>${escapeHtml(key)}</b>`);
+      lines.push("Подаци још нису уписани.");
+      lines.push("");
+      continue;
+    }
+
+    lines.push(`<b>${escapeHtml(data.civilDate)}, ${escapeHtml(data.day || "")}</b>`);
+    lines.push(escapeHtml(data.title || "Није уписано"));
+    lines.push(formatFastStatus(data));
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
+function formatFastStatus(data) {
+  const fasting = `${data.fasting || ""} ${data.fastingType || ""}`.toLowerCase();
+
+  if (
+    fasting.includes("нема поста") ||
+    fasting.includes("без поста") ||
+    fasting.includes("разрешено")
+  ) {
+    return "🟢 Без поста";
+  }
+
+  return `🔴 Пост: ${escapeHtml(data.fastingType || data.fasting || "да")}`;
+}
+
+function missingDateMessage(dateKey) {
+  return `☦️ За датум ${escapeHtml(dateKey)} још нису додати подаци у календар.`;
 }
 
 async function handleReportCommand({ message, env, originalText }) {
