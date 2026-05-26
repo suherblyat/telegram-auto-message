@@ -136,15 +136,29 @@ async function hardModerationCheck({ message, env, originalText }) {
 }
 
 function getBlockedMediaDecision(message, env) {
-  const blockGifs = String(env.BLOCK_GIFS_AND_STICKERS || "true").toLowerCase() !== "false";
-  if (!blockGifs) return null;
+  const mediaLockdown = String(env.MEDIA_LOCKDOWN || "false").toLowerCase() === "true";
+  if (!mediaLockdown) return null;
 
-  const isGifDocument = message.document?.mime_type === "image/gif";
-  if (message.animation || message.sticker || isGifDocument) {
-    return { reason: "забрањен GIF/стикер/анимација у приватно модерираној групи" };
+  if (hasAnyMedia(message)) {
+    return { reason: "media lockdown је укључен: медија није дозвољена за non-admin кориснике" };
   }
 
   return null;
+}
+
+function hasAnyMedia(message) {
+  const isGifDocument = message.document?.mime_type === "image/gif";
+  return Boolean(
+    message.photo ||
+    message.video ||
+    message.animation ||
+    message.sticker ||
+    message.audio ||
+    message.voice ||
+    message.video_note ||
+    message.document ||
+    isGifDocument
+  );
 }
 
 function getSevereTextDecision(text) {
