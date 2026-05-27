@@ -95,7 +95,8 @@ function formatCalendar(data) {
   return `☦️ <b>Календар за данас</b>\n\n` +
     `📅 <b>Датум:</b> ${escapeHtml(data.civilDate)}\n` +
     `🕊 <b>Црквени датум:</b> ${escapeHtml(data.churchDate || "Није уписано")}\n` +
-    `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}\n\n` +
+    `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}\n` +
+    `🎵 <b>${formatToneLine(data)}</b>\n\n` +
     `<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n` +
     `<b>Пост</b>\n${formatFast(data)}\n\n` +
     `<b>Читања</b>\nАпостол: ${escapeHtml(data.apostle || "Није уписано")}\nЈеванђеље: ${escapeHtml(data.gospel || "Није уписано")}` +
@@ -107,7 +108,7 @@ function formatPost(data) {
 }
 
 function formatTomorrow(data) {
-  return `☦️ <b>Сутра</b>\n\n📅 ${escapeHtml(data.civilDate)}\n📆 ${escapeHtml(data.day || "Није уписано")}\n\n<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n<b>Пост</b>\n${formatFast(data)}`;
+  return `☦️ <b>Сутра</b>\n\n📅 ${escapeHtml(data.civilDate)}\n📆 ${escapeHtml(data.day || "Није уписано")}\n🎵 <b>${formatToneLine(data)}</b>\n\n<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n<b>Пост</b>\n${formatFast(data)}`;
 }
 
 function formatWeek() {
@@ -126,6 +127,7 @@ function formatWeek() {
 
     lines.push(`<b>${escapeHtml(data.civilDate)}, ${escapeHtml(data.day || "")}</b>`);
     lines.push(escapeHtml(data.title || "Није уписано"));
+    lines.push(formatToneLine(data));
     lines.push(formatFast(data));
     lines.push("");
   }
@@ -139,6 +141,37 @@ function formatFast(data) {
     return "🟢 Без поста";
   }
   return `🔴 ${escapeHtml(data.fastingType || data.fasting || "пост")}`;
+}
+
+function formatToneLine(data) {
+  const tone = getWeekToneByDateKey(data.date || data.dateKey || todayKey());
+  return tone ? `Глас недеље: ${escapeHtml(tone)}` : "Глас није израчунат за овај датум.";
+}
+
+function getWeekToneByDateKey(dateKey) {
+  const thomasSunday2026 = "2026-04-19";
+  const currentSunday = getSundayOfWeek(dateKey);
+
+  if (currentSunday < thomasSunday2026) return "";
+
+  const diffDays = daysBetween(thomasSunday2026, currentSunday);
+  const weeks = Math.floor(diffDays / 7);
+  const tone = (weeks % 8) + 1;
+
+  return `${tone}. глас`;
+}
+
+function getSundayOfWeek(dateKey) {
+  const date = new Date(dateKey + "T12:00:00Z");
+  const day = date.getUTCDay();
+  date.setUTCDate(date.getUTCDate() - day);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(startKey, endKey) {
+  const start = new Date(startKey + "T12:00:00Z");
+  const end = new Date(endKey + "T12:00:00Z");
+  return Math.round((end - start) / 86400000);
 }
 
 function missingMessage(key) {
