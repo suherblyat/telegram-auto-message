@@ -1,5 +1,5 @@
 name = "telegram-auto-message2"
-main = "src/public-warning-guard.js"
+main = "src/command-router.js"
 compatibility_date = "2025-01-01"
 
 [vars]
