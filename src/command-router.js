@@ -109,14 +109,19 @@ function parseBibleReference(input) {
 }
 
 function normalizeBookInput(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/љ/g, "lj").replace(/њ/g, "nj").replace(/ђ/g, "dj").replace(/џ/g, "dz")
-    .replace(/ј/g, "j").replace(/ч/g, "c").replace(/ћ/g, "c").replace(/ш/g, "s").replace(/ж/g, "z")
-    .replace(/š/g, "s").replace(/č/g, "c").replace(/ć/g, "c").replace(/ž/g, "z").replace(/đ/g, "dj")
+  return transliterateSerbian(String(value || "").toLowerCase())
     .replace(/[.]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function transliterateSerbian(value) {
+  const map = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ђ": "dj", "е": "e", "ж": "z", "з": "z", "и": "i", "ј": "j", "к": "k", "л": "l", "љ": "lj", "м": "m", "н": "n", "њ": "nj", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "ћ": "c", "у": "u", "ф": "f", "х": "h", "ц": "c", "ч": "c", "џ": "dz", "ш": "s",
+    "š": "s", "č": "c", "ć": "c", "ž": "z", "đ": "dj"
+  };
+
+  return Array.from(value).map((char) => map[char] || char).join("");
 }
 
 async function fetchBiblePassage(queryReference) {
