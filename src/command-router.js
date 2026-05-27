@@ -1,11 +1,11 @@
-import guardedWorker from "./public-warning-guard.js";
+import privateWorker from "./private-entry.js";
 
 const BIBLE_TRANSLATION = "srkdekavski";
 
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") {
-      return guardedWorker.fetch(request, env, ctx);
+      return privateWorker.fetch(request, env, ctx);
     }
 
     const clonedRequest = request.clone();
@@ -14,13 +14,13 @@ export default {
     try {
       update = await clonedRequest.json();
     } catch {
-      return guardedWorker.fetch(request, env, ctx);
+      return privateWorker.fetch(request, env, ctx);
     }
 
     const message = update.message || update.edited_message;
 
     if (!message?.text) {
-      return guardedWorker.fetch(request, env, ctx);
+      return privateWorker.fetch(request, env, ctx);
     }
 
     const text = message.text.trim();
@@ -28,7 +28,7 @@ export default {
 
     if (isCommand(lower, ["/citanja", "/читања", "/dnevnacitanja", "/дневначитања", "/dnevna_citanja", "/дневна_читања"])) {
       const rewritten = rewriteMessageText(update, "/svpismo");
-      return guardedWorker.fetch(jsonRequest(request, rewritten), env, ctx);
+      return privateWorker.fetch(jsonRequest(request, rewritten), env, ctx);
     }
 
     if (isCommand(lower, ["/svpismo", "/свписмо"])) {
@@ -45,7 +45,7 @@ export default {
       return handleBibleLookup({ message, args });
     }
 
-    return guardedWorker.fetch(request, env, ctx);
+    return privateWorker.fetch(request, env, ctx);
   }
 };
 
