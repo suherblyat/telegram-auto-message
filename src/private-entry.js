@@ -5,12 +5,12 @@ const FASTING_OVERRIDES = {
   "2026-05-27": {
     fasting: "Пост",
     fastingType: "уље",
-    note: "Исправљено: није разрешење на рибу. Пост је на уљу."
+    overrideApplied: true
   },
   "2026-05-29": {
     fasting: "Пост",
     fastingType: "уље",
-    note: "Исправљено: није разрешење на рибу. Пост је на уљу."
+    overrideApplied: true
   }
 };
 
@@ -61,13 +61,17 @@ function handleCalendarOverrideCommand({ message, commandText }) {
   const threadId = message.message_thread_id;
 
   if (isCommand(commandText, ["/post", "/пост"])) {
-    const today = getCalendarDay(getTodayKey());
-    return sendGroupMessage(chatId, today ? formatPost(today) : missingDateMessage(getTodayKey()), threadId);
+    const todayKey = getTodayKey();
+    const today = getCalendarDay(todayKey);
+    return sendGroupMessage(chatId, today ? formatPost(today) : missingDateMessage(todayKey), threadId);
   }
 
   if (isCommand(commandText, ["/kalendar", "/календар"])) {
-    const today = getCalendarDay(getTodayKey());
-    return sendGroupMessage(chatId, today ? formatCalendar(today) : missingDateMessage(getTodayKey()), threadId);
+    const todayKey = getTodayKey();
+    const today = getCalendarDay(todayKey);
+    if (!today) return sendGroupMessage(chatId, missingDateMessage(todayKey), threadId);
+    if (today.icon) return sendPhoto(chatId, today.icon, formatCalendar(today), threadId);
+    return sendGroupMessage(chatId, formatCalendar(today), threadId);
   }
 
   if (isCommand(commandText, ["/sutra", "/сутра"])) {
@@ -138,18 +142,21 @@ function formatDateKey(date) {
 }
 
 function formatCalendar(data) {
+  const noteBlock = data.overrideApplied ? "" : `\n\n<b>Напомена</b>\n${escapeHtml(data.note || "Нема напомене.")}`;
+
   return `☦️ <b>Календар за данас</b>\n\n` +
     `📅 <b>Датум:</b> ${escapeHtml(data.civilDate)}\n` +
     `🕊 <b>Црквени датум:</b> ${escapeHtml(data.churchDate || "Није уписано")}\n` +
     `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}\n\n` +
     `<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n` +
     `<b>Пост</b>\n${formatFastStatus(data)}\n\n` +
-    `<b>Читања</b>\nАпостол: ${escapeHtml(data.apostle || "Није уписано")}\nЈеванђеље: ${escapeHtml(data.gospel || "Није уписано")}\n\n` +
-    `<b>Напомена</b>\n${escapeHtml(data.note || "Нема напомене.")}`;
+    `<b>Читања</b>\nАпостол: ${escapeHtml(data.apostle || "Није уписано")}\nЈеванђеље: ${escapeHtml(data.gospel || "Није уписано")}` +
+    noteBlock;
 }
 
 function formatPost(data) {
-  return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}\n\n${formatFastStatus(data)}\n\n<b>Напомена</b>\n${escapeHtml(data.note || "Нема напомене.")}`;
+  const noteBlock = data.overrideApplied ? "" : `\n\n<b>Напомена</b>\n${escapeHtml(data.note || "Нема напомене.")}`;
+  return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}\n\n${formatFastStatus(data)}${noteBlock}`;
 }
 
 function formatTomorrow(data) {
@@ -428,6 +435,25 @@ function sendGroupMessage(chatId, text, threadId = undefined) {
     text,
     parse_mode: "HTML",
     disable_web_page_preview: true
+  };
+
+  if (threadId !== undefined && threadId !== null) {
+    payload.message_thread_id = threadId;
+  }
+
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+function sendPhoto(chatId, photoUrl, caption, threadId = undefined) {
+  const payload = {
+    method: "sendPhoto",
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: "HTML"
   };
 
   if (threadId !== undefined && threadId !== null) {
