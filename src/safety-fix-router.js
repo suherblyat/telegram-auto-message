@@ -23,7 +23,7 @@ export default {
       return resetWarnings({ env, message, chatId, threadId, original });
     }
 
-    if (!lower.startsWith("/") && isKnownFalsePositive(original)) {
+    if (!lower.startsWith("/") && shouldBypassOldModeration(original)) {
       return new Response("OK", { status: 200 });
     }
 
@@ -60,12 +60,45 @@ function getTargetId(message, original) {
   return m ? m[0] : "";
 }
 
-function isKnownFalsePositive(value) {
+function shouldBypassOldModeration(value) {
   const t = latin(value);
+
+  if (hasSeriousProfanity(t)) return false;
   if (t.includes("kurziv")) return true;
-  const sacred = has(t, ["isus", "hrist", "gospod", "svetog", "svetome", "sveti", "crkva", "manastir", "ikona"]);
-  const normalDisagreement = has(t, ["glupost", "greska", "neispravno", "nije tacno", "nije istina", "ne slazem", "pogresno"]);
-  return sacred && normalDisagreement;
+
+  const theological = has(t, [
+    "isus", "hrist", "gospod", "bog", "sveti", "svetog", "svetome", "svetinja",
+    "crkva", "manastir", "ikona", "liturgija", "pricesce", "jevandjelje", "svestenik",
+    "episkop", "vladika", "patrijarh", "kanon", "sabor", "jeres", "jeretik",
+    "raskol", "raskolnik", "novotar", "ziloti", "zilot", "katolik", "papa", "vatikan",
+    "protestant", "islam", "dogma", "blagodat", "predanje", "post", "molitva"
+  ]);
+
+  if (!theological) return false;
+
+  const debateOrNeutral = has(t, [
+    "nije tacno", "nije istina", "ne slazem", "pogresno", "greska", "glupost",
+    "objasni", "dokaz", "izvor", "citat", "pravilo", "kanon", "sabor", "verzija",
+    "ime", "hebrej", "grcki", "latinski", "znacenje", "tumacenje", "pitanje",
+    "mislim", "kazem", "tvrdi", "stav", "rasprava", "debata", "novotarije", "raskolnici"
+  ]);
+
+  if (debateOrNeutral) return true;
+
+  const longTheologicalMessage = t.length > 120;
+  if (longTheologicalMessage) return true;
+
+  return false;
+}
+
+function hasSeriousProfanity(t) {
+  const badRoots = ["jeb", "piz", "pick", "govn", "sran", "odjeb"];
+  if (has(t, badRoots)) return true;
+
+  const roughKRoot = /(^|\s)kur[a-z]{0,6}(\s|$)/.test(t);
+  if (roughKRoot && !t.includes("kurziv")) return true;
+
+  return false;
 }
 
 function latin(v) {
