@@ -33,12 +33,21 @@ export default {
       return sendMessage(message.chat.id, "⛔ Команда /ban ради само у посебној control групи.", threadId);
     }
 
-    const target = await resolveTargetUser({ env, text, targetChatId, controlChatId });
+    const parsed = parseBanCommand(text);
+    const target = await resolveTargetUser({ env, targetText: parsed.targetText, targetChatId, controlChatId });
 
     if (!target.id) {
       return sendMessage(
         message.chat.id,
-        "⚠️ Нисам нашао корисника.\n\nКористи:\n<code>/ban 123456789</code>\n\nИли:\n<code>/ban @username</code>\n\nАли username ради само ако је бот већ видео тог корисника у групи.",
+        "⚠️ Нисам нашао корисника.\n\nКористи:\n<code>/ban 123456789 разлог</code>\n\nИли:\n<code>/ban @username разлог</code>\n\nUsername ради само ако је бот већ видео тог корисника у групи.",
+        threadId
+      );
+    }
+
+    if (!parsed.reason) {
+      return sendMessage(
+        message.chat.id,
+        `⚠️ Додај разлог.\n\nПример:\n<code>/ban ${escapeHtml(target.label || target.id)} богохулни спам</code>`,
         threadId
       );
     }
@@ -57,6 +66,7 @@ export default {
       actor: message.from,
       target,
       targetChatId,
+      reason: parsed.reason,
       result
     });
 
@@ -70,21 +80,33 @@ export default {
 
     return sendMessage(
       message.chat.id,
-      `✅ Корисник је избачен из главне групе.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nОпомене су ресетоване.`,
+      `✅ Корисник је избачен из главне групе.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(parsed.reason)}\nОпомене су ресетоване.`,
       threadId
     );
   }
 };
 
-async function resolveTargetUser({ env, text, targetChatId, controlChatId }) {
+function parseBanCommand(text) {
   const args = text.replace(/^\/\S+\s*/u, "").trim();
+  const targetMatch = args.match(/^(@[a-zA-Z0-9_]{3,32}|\d{5,})/);
 
-  const idMatch = args.match(/\d{5,}/);
+  if (!targetMatch) {
+    return { targetText: "", reason: "" };
+  }
+
+  const targetText = targetMatch[1];
+  const reason = args.slice(targetText.length).trim().slice(0, 500);
+
+  return { targetText, reason };
+}
+
+async function resolveTargetUser({ env, targetText, targetChatId, controlChatId }) {
+  const idMatch = String(targetText || "").match(/\d{5,}/);
   if (idMatch) {
     return { id: idMatch[0], label: idMatch[0] };
   }
 
-  const username = (args.match(/@[a-zA-Z0-9_]{3,32}/) || [""])[0]
+  const username = (String(targetText || "").match(/@[a-zA-Z0-9_]{3,32}/) || [""])[0]
     .replace("@", "")
     .toLowerCase();
 
@@ -105,7 +127,7 @@ async function resolveTargetUser({ env, text, targetChatId, controlChatId }) {
   return { id: "", label: `@${username}` };
 }
 
-async function notifyAdmin(env, { actor, target, targetChatId, result }) {
+async function notifyAdmin(env, { actor, target, targetChatId, reason, result }) {
   if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
 
   const text =
@@ -114,6 +136,7 @@ async function notifyAdmin(env, { actor, target, targetChatId, result }) {
     `<b>Target:</b> ${escapeHtml(target.label || target.id)}\n` +
     `<b>User ID:</b> <code>${escapeHtml(target.id)}</code>\n` +
     `<b>Target chat:</b> <code>${escapeHtml(targetChatId)}</code>\n` +
+    `<b>Разлог:</b> ${escapeHtml(reason || "није наведен")}\n` +
     `<b>Result:</b> <code>${escapeHtml(JSON.stringify(result))}</code>`;
 
   await telegramApi(env, "sendMessage", {
