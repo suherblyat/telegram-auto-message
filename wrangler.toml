@@ -1,5 +1,5 @@
 name = "telegram-auto-message2"
-main = "src/safety-fix-router.js"
+main = "src/userid-router.js"
 compatibility_date = "2025-01-01"
 
 [vars]
