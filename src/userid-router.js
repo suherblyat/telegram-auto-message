@@ -21,6 +21,10 @@ export default {
 
     await rememberUser(env, chatId, message.from);
 
+    if (isCmd(lower, ["/chatid", "/четид", "/cid"])) {
+      return send(chatId, `🆔 <b>Chat ID</b>\n\nChat ID: <code>${esc(chatId)}</code>\nThread ID: <code>${esc(threadId || "нема")}</code>\nTitle: ${esc(message.chat?.title || message.chat?.type || "?")}`, threadId);
+    }
+
     if (isCmd(lower, ["/replydebug", "/debugreply", "/reply_debug"])) {
       return replyDebug(message, chatId, threadId);
     }
