@@ -25,10 +25,10 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
-    if (message.reply_to_message?.from?.id) {
-      const u = message.reply_to_message.from;
-      await rememberUser(env, chatId, u);
-      return send(chatId, `🆔 <b>User ID</b>\n\nКорисник: ${esc(formatUser(u))}\nUser ID: <code>${esc(u.id)}</code>`, threadId);
+    const repliedUser = getRepliedUser(message);
+    if (repliedUser?.id) {
+      await rememberUser(env, chatId, repliedUser);
+      return send(chatId, `🆔 <b>User ID</b>\n\nКорисник: ${esc(formatUser(repliedUser))}\nUser ID: <code>${esc(repliedUser.id)}</code>`, threadId);
     }
 
     const username = (text.match(/@[a-zA-Z0-9_]{3,32}/) || [""])[0].replace("@", "").toLowerCase();
@@ -41,10 +41,23 @@ export default {
       return send(chatId, `⚠️ Немам ID за @${esc(username)}. Нека тај корисник пошаље нешто у групу, па онда пробај поново.`, threadId);
     }
 
-    const u = message.from;
-    return send(chatId, `🆔 <b>Твој User ID</b>\n\nКорисник: ${esc(formatUser(u))}\nUser ID: <code>${esc(u.id)}</code>`, threadId);
+    if (text.includes(" ")) {
+      return send(chatId, "⚠️ Не препознајем корисника. Користи reply на поруку, или <code>/userid @username</code> ако је бот већ видео тог корисника.", threadId);
+    }
+
+    if (!message.reply_to_message) {
+      const u = message.from;
+      return send(chatId, `🆔 <b>Твој User ID</b>\n\nКорисник: ${esc(formatUser(u))}\nUser ID: <code>${esc(u.id)}</code>\n\n<i>Ако си ово послао као reply, Telegram није послао reply податке боту. Провери да је BotFather privacy искључен: /setprivacy → Disable.</i>`, threadId);
+    }
+
+    return send(chatId, "⚠️ Видео сам reply, али Telegram није послао корисника из те поруке. Ако је порука послата као channel/anonymous admin, нема обичан User ID.", threadId);
   }
 };
+
+function getRepliedUser(message) {
+  if (message.reply_to_message?.from?.id) return message.reply_to_message.from;
+  return null;
+}
 
 async function rememberUser(env, chatId, user) {
   if (!env.MOD_STATE || !user?.id) return;
