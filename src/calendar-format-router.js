@@ -91,11 +91,12 @@ function dateKey(date) {
 
 function formatCalendar(data) {
   const note = data.note ? `\n\n<b>Напомена</b>\n${escapeHtml(data.note)}` : "";
+  const dayRank = formatDayRank(data, "line");
 
   return `☦️ <b>Календар за данас</b>\n\n` +
     `📅 <b>Датум:</b> ${escapeHtml(data.civilDate)}\n` +
     `🕊 <b>Црквени датум:</b> ${escapeHtml(data.churchDate || "Није уписано")}\n` +
-    `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}\n` +
+    `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}${dayRank ? `\n${dayRank}` : ""}\n` +
     `🎵 <b>${formatToneLine(data)}</b>\n\n` +
     `<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n` +
     `<b>Пост</b>\n${formatFast(data)}\n\n` +
@@ -104,11 +105,13 @@ function formatCalendar(data) {
 }
 
 function formatPost(data) {
-  return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}\n\n${formatFast(data)}`;
+  const dayRank = formatDayRank(data, "line");
+  return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}${dayRank ? `\n${dayRank}` : ""}\n\n${formatFast(data)}`;
 }
 
 function formatTomorrow(data) {
-  return `☦️ <b>Сутра</b>\n\n📅 ${escapeHtml(data.civilDate)}\n📆 ${escapeHtml(data.day || "Није уписано")}\n🎵 <b>${formatToneLine(data)}</b>\n\n<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n<b>Пост</b>\n${formatFast(data)}`;
+  const dayRank = formatDayRank(data, "line");
+  return `☦️ <b>Сутра</b>\n\n📅 ${escapeHtml(data.civilDate)}\n📆 ${escapeHtml(data.day || "Није уписано")}${dayRank ? `\n${dayRank}` : ""}\n🎵 <b>${formatToneLine(data)}</b>\n\n<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n<b>Пост</b>\n${formatFast(data)}`;
 }
 
 function formatWeek() {
@@ -125,7 +128,8 @@ function formatWeek() {
       continue;
     }
 
-    lines.push(`<b>${escapeHtml(data.civilDate)}, ${escapeHtml(data.day || "")}</b>`);
+    const badge = formatDayRank(data, "badge");
+    lines.push(`<b>${escapeHtml(data.civilDate)}, ${escapeHtml(data.day || "")}</b>${badge ? ` ${badge}` : ""}`);
     lines.push(escapeHtml(data.title || "Није уписано"));
     lines.push(formatToneLine(data));
     lines.push(formatFast(data));
@@ -141,6 +145,74 @@ function formatFast(data) {
     return "🟢 Без поста";
   }
   return `🔴 ${escapeHtml(data.fastingType || data.fasting || "пост")}`;
+}
+
+function formatDayRank(data, mode = "line") {
+  const rank = getDayRank(data);
+  if (!rank) return "";
+
+  if (mode === "badge") {
+    return rank === "red" ? "🔴 <b>ЦРВЕНИ ДАН</b>" : "⚫ <b>ЦРНИ ДАН</b>";
+  }
+
+  return rank === "red" ? "🔴 <b>ЦРВЕНИ ДАН</b>" : "⚫ <b>ЦРНИ ДАН</b>";
+}
+
+function getDayRank(data) {
+  const explicit = `${data.dayRank || ""} ${data.dayColor || ""} ${data.color || ""} ${data.feastColor || ""} ${data.redDay || ""} ${data.blackDay || ""}`.toLowerCase();
+
+  if (data.redDay === true || explicit.includes("црвен") || explicit.includes("crven") || explicit.includes("red")) return "red";
+  if (data.blackDay === true || explicit.includes("црн") || explicit.includes("crn") || explicit.includes("black")) return "black";
+
+  const text = normalize(`${data.title || ""} ${data.feastType || ""} ${data.note || ""}`);
+
+  if (hasAny(text, [
+    "crveno slovo",
+    "veliki praznik",
+    "gospodnji praznik",
+    "bogorodicin praznik",
+    "hramovna slava",
+    "svetosavski",
+    "vaskrs",
+    "bozic",
+    "bogojavljenje",
+    "sretenje",
+    "blagovesti",
+    "cveti",
+    "vaznesenje",
+    "spasovdan",
+    "pedesetnica",
+    "trojice",
+    "preobrazenje",
+    "uspenje",
+    "mala gospojina",
+    "velika gospojina",
+    "vavedenje",
+    "krstovdan",
+    "pokrov",
+    "sveti sava",
+    "vidovdan",
+    "djurdjevdan",
+    "arandjelovdan",
+    "nikoljdan",
+    "jovanjdan",
+    "petkovica"
+  ])) {
+    return "red";
+  }
+
+  if (hasAny(text, ["crno slovo", "crni dan"])) return "black";
+
+  return "";
+}
+
+function normalize(value) {
+  const map = {"а":"a","б":"b","в":"v","г":"g","д":"d","ђ":"dj","е":"e","ж":"z","з":"z","и":"i","ј":"j","к":"k","л":"l","љ":"lj","м":"m","н":"n","њ":"nj","о":"o","п":"p","р":"r","с":"s","т":"t","ћ":"c","у":"u","ф":"f","х":"h","ц":"c","ч":"c","џ":"dz","ш":"s","š":"s","č":"c","ć":"c","ž":"z","đ":"dj"};
+  return Array.from(String(value || "").toLowerCase()).map((c) => map[c] || c).join("").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function hasAny(text, needles) {
+  return needles.some((needle) => text.includes(needle));
 }
 
 function formatToneLine(data) {
