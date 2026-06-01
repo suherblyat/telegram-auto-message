@@ -6,6 +6,62 @@ const FASTING_OVERRIDES = {
   "2026-05-29": { fasting: "Пост", fastingType: "уље" }
 };
 
+// Ручно унети црвени дани за 2026. годину.
+// Ако додаш нови датум у calendar-2026.js, само га убаци овде ако је црвено слово.
+const RED_DAY_DATES = new Set([
+  "2026-01-07", // Божић
+  "2026-01-08", // Сабор Пресвете Богородице
+  "2026-01-09", // Свети првомученик Стефан
+  "2026-01-14", // Обрезање Господње / Свети Василије Велики
+  "2026-01-19", // Богојављење
+  "2026-01-20", // Сабор Светог Јована Крститеља
+  "2026-01-27", // Свети Сава
+  "2026-02-15", // Сретење Господње
+  "2026-04-04", // Лазарева субота
+  "2026-04-05", // Цвети
+  "2026-04-07", // Благовести
+  "2026-04-12", // Васкрс
+  "2026-04-13", // Васкрсни понедељак
+  "2026-04-14", // Васкрсни уторак
+  "2026-05-06", // Ђурђевдан
+  "2026-05-12", // Свети Василије Острошки
+  "2026-05-21", // Вазнесење Господње / Спасовдан
+  "2026-05-22", // Пренос моштију Светог Николаја
+  "2026-05-24", // Свети Кирило и Методије
+  "2026-05-31", // Педесетница / Света Тројица
+  "2026-06-01", // Духовски понедељак
+  "2026-06-03", // Свети цар Константин и царица Јелена
+  "2026-06-28", // Видовдан
+  "2026-07-07", // Ивањдан
+  "2026-07-12", // Петровдан
+  "2026-08-02", // Илиндан
+  "2026-08-09", // Свети Пантелејмон
+  "2026-08-19", // Преображење Господње
+  "2026-08-28", // Успење Пресвете Богородице
+  "2026-09-11", // Усековање главе Светог Јована Крститеља
+  "2026-09-21", // Мала Госпојина
+  "2026-09-27", // Крстовдан
+  "2026-10-14", // Покров Пресвете Богородице
+  "2026-10-27", // Света Петка
+  "2026-10-31", // Свети Лука
+  "2026-11-08", // Митровдан
+  "2026-11-21", // Аранђеловдан
+  "2026-12-04", // Ваведење Пресвете Богородице
+  "2026-12-19"  // Никољдан
+]);
+
+// Ручно унети црни дани. Ово су датуми које хоћеш да бот изричито означи као црно слово.
+// За све остале дане неће писати ништа.
+const BLACK_DAY_DATES = new Set([
+  "2026-05-23",
+  "2026-05-25",
+  "2026-05-26",
+  "2026-05-27",
+  "2026-05-28",
+  "2026-05-29",
+  "2026-05-30"
+]);
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") return commandRouter.fetch(request, env, ctx);
@@ -159,60 +215,15 @@ function formatDayRank(data, mode = "line") {
 }
 
 function getDayRank(data) {
-  const explicit = `${data.dayRank || ""} ${data.dayColor || ""} ${data.color || ""} ${data.feastColor || ""} ${data.redDay || ""} ${data.blackDay || ""}`.toLowerCase();
+  const key = data.date || data.dateKey;
+  if (RED_DAY_DATES.has(key)) return "red";
+  if (BLACK_DAY_DATES.has(key)) return "black";
 
+  const explicit = `${data.dayRank || ""} ${data.dayColor || ""} ${data.color || ""} ${data.feastColor || ""} ${data.redDay || ""} ${data.blackDay || ""}`.toLowerCase();
   if (data.redDay === true || explicit.includes("црвен") || explicit.includes("crven") || explicit.includes("red")) return "red";
   if (data.blackDay === true || explicit.includes("црн") || explicit.includes("crn") || explicit.includes("black")) return "black";
 
-  const text = normalize(`${data.title || ""} ${data.feastType || ""} ${data.note || ""}`);
-
-  if (hasAny(text, [
-    "crveno slovo",
-    "veliki praznik",
-    "gospodnji praznik",
-    "bogorodicin praznik",
-    "hramovna slava",
-    "svetosavski",
-    "vaskrs",
-    "bozic",
-    "bogojavljenje",
-    "sretenje",
-    "blagovesti",
-    "cveti",
-    "vaznesenje",
-    "spasovdan",
-    "pedesetnica",
-    "trojice",
-    "preobrazenje",
-    "uspenje",
-    "mala gospojina",
-    "velika gospojina",
-    "vavedenje",
-    "krstovdan",
-    "pokrov",
-    "sveti sava",
-    "vidovdan",
-    "djurdjevdan",
-    "arandjelovdan",
-    "nikoljdan",
-    "jovanjdan",
-    "petkovica"
-  ])) {
-    return "red";
-  }
-
-  if (hasAny(text, ["crno slovo", "crni dan"])) return "black";
-
   return "";
-}
-
-function normalize(value) {
-  const map = {"а":"a","б":"b","в":"v","г":"g","д":"d","ђ":"dj","е":"e","ж":"z","з":"z","и":"i","ј":"j","к":"k","л":"l","љ":"lj","м":"m","н":"n","њ":"nj","о":"o","п":"p","р":"r","с":"s","т":"t","ћ":"c","у":"u","ф":"f","х":"h","ц":"c","ч":"c","џ":"dz","ш":"s","š":"s","č":"c","ć":"c","ž":"z","đ":"dj"};
-  return Array.from(String(value || "").toLowerCase()).map((c) => map[c] || c).join("").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function hasAny(text, needles) {
-  return needles.some((needle) => text.includes(needle));
 }
 
 function formatToneLine(data) {
