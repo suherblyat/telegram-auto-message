@@ -126,18 +126,27 @@ function isTheologicalOrChurchDebate(value) {
     "crkva", "manastir", "ikona", "liturgija", "pricesce", "jevandjelje", "svestenik",
     "episkop", "vladika", "patrijarh", "kanon", "sabor", "jeres", "jeretik",
     "raskol", "raskolnik", "novotar", "ziloti", "zilot", "katolik", "papa", "vatikan",
-    "protestant", "islam", "dogma", "blagodat", "predanje", "post", "molitva"
+    "protestant", "islam", "dogma", "blagodat", "predanje", "post", "molitva", "kuran"
   ]);
 }
 
 function hasSeriousProfanity(t) {
-  const badRoots = ["jeb", "piz", "pick", "govn", "sran", "odjeb"];
-  if (has(t, badRoots)) return true;
+  const words = t.split(/\s+/).filter(Boolean);
 
-  const roughKRoot = /(^|\s)kur[a-z]{0,6}(\s|$)/.test(t);
-  if (roughKRoot && !t.includes("kurziv")) return true;
+  const exactBlocked = new Set(["jeb", "piz", "pick", "govn", "sran", "odjeb"]);
+  if (words.some((word) => exactBlocked.has(word))) return true;
 
-  return false;
+  return words.some((word) =>
+    word.startsWith("jebo") ||
+    word.startsWith("jebem") ||
+    word.startsWith("jebes") ||
+    word.startsWith("jebac") ||
+    word.startsWith("pizd") ||
+    word.startsWith("pick") ||
+    word.startsWith("govn") ||
+    word.startsWith("sran") ||
+    word.startsWith("odjeb")
+  );
 }
 
 function senderAllowed(env, userId) {
