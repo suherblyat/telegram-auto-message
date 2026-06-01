@@ -19,10 +19,16 @@ export default {
     const text = message.text.trim();
     const lower = text.toLowerCase();
 
-    await rememberUser(env, chatId, message.from);
+    if (isAnyCmd(lower)) {
+      await rememberUser(env, chatId, message.from);
+    }
 
     if (isCmd(lower, ["/chatid", "/четид", "/cid"])) {
       return send(chatId, `🆔 <b>Chat ID</b>\n\nChat ID: <code>${esc(chatId)}</code>\nThread ID: <code>${esc(threadId || "нема")}</code>\nTitle: ${esc(message.chat?.title || message.chat?.type || "?")}`, threadId);
+    }
+
+    if (isCmd(lower, ["/botstat", "/botstats", "/usage", "/стат", "/статистика"])) {
+      return botStats({ env, message, chatId, threadId });
     }
 
     if (isCmd(lower, ["/replydebug", "/debugreply", "/reply_debug"])) {
@@ -46,7 +52,7 @@ export default {
       if (found?.id) {
         return send(chatId, `🆔 <b>User ID</b>\n\nКорисник: @${esc(username)}\nUser ID: <code>${esc(found.id)}</code>`, threadId);
       }
-      return send(chatId, `⚠️ Немам ID за @${esc(username)}. Нека тај корисник пошаље нешто у групу, па онда пробај поново.`, threadId);
+      return send(chatId, `⚠️ Немам ID за @${esc(username)}. Због штедње KV лимита више не памтим сваку поруку. Нека тај корисник пошаље неку команду боту, или reply-уј на његову поруку и пошаљи <code>/userid</code>.`, threadId);
     }
 
     if (text.includes(" ")) {
@@ -61,6 +67,71 @@ export default {
     return send(chatId, "⚠️ Видео сам reply, али Telegram није послао обичног корисника из те поруке. Ако је порука послата као channel/anonymous admin, нема User ID.", threadId);
   }
 };
+
+async function botStats({ env, message, chatId, threadId }) {
+  const now = new Date().toISOString();
+  const webhook = await telegramApi(env, "getWebhookInfo", {});
+  const me = await telegramApi(env, "getMe", {});
+
+  const knownUsers = await countKvPrefix(env, `userbyid:${chatId}:`);
+  const knownUsernames = await countKvPrefix(env, `userbyname:${chatId}:`);
+  const warnings = await countKvPrefix(env, `warn:${chatId}:`);
+
+  const pending = webhook?.result?.pending_update_count ?? "?";
+  const lastError = webhook?.result?.last_error_message || "нема";
+  const botName = me?.result?.username ? `@${me.result.username}` : (me?.result?.first_name || "?");
+
+  const lines = [
+    "📊 <b>Bot / KV stat</b>",
+    "",
+    `<b>Време:</b> <code>${esc(now)}</code>`,
+    `<b>Бот:</b> ${esc(botName)}`,
+    `<b>Chat:</b> <code>${esc(chatId)}</code>`,
+    `<b>Thread:</b> <code>${esc(threadId || "нема")}</code>`,
+    `<b>Команду послао:</b> ${esc(formatUser(message.from))} / <code>${esc(message.from?.id || "?")}</code>`,
+    "",
+    `<b>Telegram pending updates:</b> <code>${esc(pending)}</code>`,
+    `<b>Telegram last error:</b> ${esc(lastError)}`,
+    "",
+    `<b>MOD_STATE KV:</b> <code>${env.MOD_STATE ? "повезан" : "није повезан"}</code>`,
+    `<b>Познати user ID у овом chatu:</b> <code>${esc(knownUsers.label)}</code>`,
+    `<b>Познати username у овом chatu:</b> <code>${esc(knownUsernames.label)}</code>`,
+    `<b>Активне опомене у овом chatu:</b> <code>${esc(warnings.label)}</code>`,
+    "",
+    "⚠️ <b>Налаз:</b> раније је код уписивао у KV за сваку текст поруку. То је вероватно појело лимит и ако људи нису користили команде.",
+    "✅ Сад је то смањено: KV памти корисника само кад пошаље команду или кад га ухватиш преко reply + /userid."
+  ];
+
+  return send(chatId, lines.join("\n"), threadId);
+}
+
+async function countKvPrefix(env, prefix) {
+  if (!env.MOD_STATE) return { count: 0, complete: true, label: "нема KV" };
+
+  try {
+    const result = await env.MOD_STATE.list({ prefix, limit: 1000 });
+    const count = result?.keys?.length || 0;
+    const complete = result?.list_complete !== false;
+    return { count, complete, label: complete ? String(count) : `${count}+` };
+  } catch (error) {
+    return { count: 0, complete: true, label: `грешка: ${error?.message || "непознато"}` };
+  }
+}
+
+async function telegramApi(env, method, body = {}) {
+  if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN није подешен." };
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return await response.json();
+  } catch (error) {
+    return { ok: false, description: error?.message || "Telegram API грешка." };
+  }
+}
 
 function replyDebug(message, chatId, threadId) {
   const r = message.reply_to_message;
@@ -97,6 +168,10 @@ async function rememberUser(env, chatId, user) {
     await env.MOD_STATE.put(`userbyname:${chatId}:${String(user.username).toLowerCase()}`, JSON.stringify({ id: String(user.id), username: user.username, updatedAt: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 90 });
   }
   await env.MOD_STATE.put(`userbyid:${chatId}:${user.id}`, JSON.stringify({ id: String(user.id), username: user.username || "", name: formatUser(user), updatedAt: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 90 });
+}
+
+function isAnyCmd(t) {
+  return t.startsWith("/");
 }
 
 function isCmd(t, arr) {
