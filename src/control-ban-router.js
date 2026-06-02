@@ -26,15 +26,16 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
-    const controlChatId = String(env.CONTROL_CHAT_ID || DEFAULT_CONTROL_CHAT_ID);
+    const controlChatIds = getControlChatIds(env);
+    const controlChatIdForLookup = controlChatIds[0] || DEFAULT_CONTROL_CHAT_ID;
     const targetChatId = String(env.TARGET_CHAT_ID || DEFAULT_TARGET_CHAT_ID);
 
-    if (chatId !== controlChatId) {
-      return sendMessage(message.chat.id, "⛔ Команда /ban ради само у посебној control групи.", threadId);
+    if (!controlChatIds.includes(chatId)) {
+      return sendMessage(message.chat.id, "⛔ Команда /ban ради само у посебним control групама.", threadId);
     }
 
     const parsed = parseBanCommand(text);
-    const target = await resolveTargetUser({ env, targetText: parsed.targetText, targetChatId, controlChatId });
+    const target = await resolveTargetUser({ env, targetText: parsed.targetText, targetChatId, controlChatId: chatId, fallbackControlChatId: controlChatIdForLookup });
 
     if (!target.id) {
       return sendMessage(
@@ -64,6 +65,7 @@ export default {
 
     await notifyAdmin(env, {
       actor: message.from,
+      sourceChatId: chatId,
       target,
       targetChatId,
       reason: parsed.reason,
@@ -86,6 +88,11 @@ export default {
   }
 };
 
+function getControlChatIds(env) {
+  const raw = String(env.CONTROL_CHAT_IDS || env.CONTROL_CHAT_ID || DEFAULT_CONTROL_CHAT_ID);
+  return raw.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
 function parseBanCommand(text) {
   const args = text.replace(/^\/\S+\s*/u, "").trim();
   const targetMatch = args.match(/^(@[a-zA-Z0-9_]{3,32}|\d{5,})/);
@@ -100,7 +107,7 @@ function parseBanCommand(text) {
   return { targetText, reason };
 }
 
-async function resolveTargetUser({ env, targetText, targetChatId, controlChatId }) {
+async function resolveTargetUser({ env, targetText, targetChatId, controlChatId, fallbackControlChatId }) {
   const idMatch = String(targetText || "").match(/\d{5,}/);
   if (idMatch) {
     return { id: idMatch[0], label: idMatch[0] };
@@ -119,20 +126,28 @@ async function resolveTargetUser({ env, targetText, targetChatId, controlChatId 
     return { id: String(fromTarget.id), label: `@${username}` };
   }
 
-  const fromControl = await env.MOD_STATE.get(`userbyname:${controlChatId}:${username}`, "json");
-  if (fromControl?.id) {
-    return { id: String(fromControl.id), label: `@${username}` };
+  const fromCurrentControl = await env.MOD_STATE.get(`userbyname:${controlChatId}:${username}`, "json");
+  if (fromCurrentControl?.id) {
+    return { id: String(fromCurrentControl.id), label: `@${username}` };
+  }
+
+  if (fallbackControlChatId && fallbackControlChatId !== controlChatId) {
+    const fromFallbackControl = await env.MOD_STATE.get(`userbyname:${fallbackControlChatId}:${username}`, "json");
+    if (fromFallbackControl?.id) {
+      return { id: String(fromFallbackControl.id), label: `@${username}` };
+    }
   }
 
   return { id: "", label: `@${username}` };
 }
 
-async function notifyAdmin(env, { actor, target, targetChatId, reason, result }) {
+async function notifyAdmin(env, { actor, sourceChatId, target, targetChatId, reason, result }) {
   if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
 
   const text =
     `⛔ <b>Control ban</b>\n\n` +
     `<b>Покренуо:</b> ${escapeHtml(formatUser(actor))}\n` +
+    `<b>Control chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
     `<b>Target:</b> ${escapeHtml(target.label || target.id)}\n` +
     `<b>User ID:</b> <code>${escapeHtml(target.id)}</code>\n` +
     `<b>Target chat:</b> <code>${escapeHtml(targetChatId)}</code>\n` +
