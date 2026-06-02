@@ -6,8 +6,6 @@ const FASTING_OVERRIDES = {
   "2026-05-29": { fasting: "Пост", fastingType: "уље" }
 };
 
-// Ручно унети црвени дани за 2026. годину.
-// Ако додаш нови датум у calendar-2026.js, само га убаци овде ако је црвено слово.
 const RED_DAY_DATES = new Set([
   "2026-01-07", // Божић
   "2026-01-08", // Сабор Пресвете Богородице
@@ -50,27 +48,13 @@ const RED_DAY_DATES = new Set([
   "2026-12-19"  // Никољдан
 ]);
 
-// Ручно унети црни дани. Ово су датуми које хоћеш да бот изричито означи као црно слово.
-// За све остале дане неће писати ништа.
-const BLACK_DAY_DATES = new Set([
-  "2026-05-23",
-  "2026-05-25",
-  "2026-05-26",
-  "2026-05-27",
-  "2026-05-28",
-  "2026-05-29",
-  "2026-05-30"
-]);
-
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") return commandRouter.fetch(request, env, ctx);
 
-    const cloned = request.clone();
     let update;
-
     try {
-      update = await cloned.json();
+      update = await request.clone().json();
     } catch {
       return commandRouter.fetch(request, env, ctx);
     }
@@ -147,12 +131,12 @@ function dateKey(date) {
 
 function formatCalendar(data) {
   const note = data.note ? `\n\n<b>Напомена</b>\n${escapeHtml(data.note)}` : "";
-  const dayRank = formatDayRank(data, "line");
 
   return `☦️ <b>Календар за данас</b>\n\n` +
     `📅 <b>Датум:</b> ${escapeHtml(data.civilDate)}\n` +
     `🕊 <b>Црквени датум:</b> ${escapeHtml(data.churchDate || "Није уписано")}\n` +
-    `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}${dayRank ? `\n${dayRank}` : ""}\n` +
+    `📆 <b>Дан:</b> ${escapeHtml(data.day || "Није уписано")}\n` +
+    `${formatDayRank(data)}\n` +
     `🎵 <b>${formatToneLine(data)}</b>\n\n` +
     `<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n` +
     `<b>Пост</b>\n${formatFast(data)}\n\n` +
@@ -161,13 +145,11 @@ function formatCalendar(data) {
 }
 
 function formatPost(data) {
-  const dayRank = formatDayRank(data, "line");
-  return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}${dayRank ? `\n${dayRank}` : ""}\n\n${formatFast(data)}`;
+  return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}\n${formatDayRank(data)}\n\n${formatFast(data)}`;
 }
 
 function formatTomorrow(data) {
-  const dayRank = formatDayRank(data, "line");
-  return `☦️ <b>Сутра</b>\n\n📅 ${escapeHtml(data.civilDate)}\n📆 ${escapeHtml(data.day || "Није уписано")}${dayRank ? `\n${dayRank}` : ""}\n🎵 <b>${formatToneLine(data)}</b>\n\n<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n<b>Пост</b>\n${formatFast(data)}`;
+  return `☦️ <b>Сутра</b>\n\n📅 ${escapeHtml(data.civilDate)}\n📆 ${escapeHtml(data.day || "Није уписано")}\n${formatDayRank(data)}\n🎵 <b>${formatToneLine(data)}</b>\n\n<b>Празник / светитељ дана</b>\n${escapeHtml(data.title || "Није уписано")}\n\n<b>Пост</b>\n${formatFast(data)}`;
 }
 
 function formatWeek() {
@@ -184,8 +166,7 @@ function formatWeek() {
       continue;
     }
 
-    const badge = formatDayRank(data, "badge");
-    lines.push(`<b>${escapeHtml(data.civilDate)}, ${escapeHtml(data.day || "")}</b>${badge ? ` ${badge}` : ""}`);
+    lines.push(`<b>${escapeHtml(data.civilDate)}, ${escapeHtml(data.day || "")}</b> ${formatDayRank(data)}`);
     lines.push(escapeHtml(data.title || "Није уписано"));
     lines.push(formatToneLine(data));
     lines.push(formatFast(data));
@@ -200,30 +181,21 @@ function formatFast(data) {
   if (combined.includes("нема поста") || combined.includes("без поста") || combined.includes("разрешено")) {
     return "🟢 Без поста";
   }
-  return `🔴 ${escapeHtml(data.fastingType || data.fasting || "пост")}`;
+  return `🔴 Пост: ${escapeHtml(data.fastingType || data.fasting || "пост")}`;
 }
 
-function formatDayRank(data, mode = "line") {
-  const rank = getDayRank(data);
-  if (!rank) return "";
-
-  if (mode === "badge") {
-    return rank === "red" ? "🔴 <b>ЦРВЕНИ ДАН</b>" : "⚫ <b>ЦРНИ ДАН</b>";
-  }
-
-  return rank === "red" ? "🔴 <b>ЦРВЕНИ ДАН</b>" : "⚫ <b>ЦРНИ ДАН</b>";
+function formatDayRank(data) {
+  return getDayRank(data) === "red" ? "🔴 <b>ЦРВЕНО СЛОВО</b>" : "⚫ <b>ЦРНО СЛОВО</b>";
 }
 
 function getDayRank(data) {
   const key = data.date || data.dateKey;
   if (RED_DAY_DATES.has(key)) return "red";
-  if (BLACK_DAY_DATES.has(key)) return "black";
 
   const explicit = `${data.dayRank || ""} ${data.dayColor || ""} ${data.color || ""} ${data.feastColor || ""} ${data.redDay || ""} ${data.blackDay || ""}`.toLowerCase();
   if (data.redDay === true || explicit.includes("црвен") || explicit.includes("crven") || explicit.includes("red")) return "red";
-  if (data.blackDay === true || explicit.includes("црн") || explicit.includes("crn") || explicit.includes("black")) return "black";
 
-  return "";
+  return "black";
 }
 
 function formatToneLine(data) {
