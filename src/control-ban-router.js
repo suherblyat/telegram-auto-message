@@ -1,6 +1,6 @@
 import app from "./userid-router.js";
 
-const DEFAULT_CONTROL_CHAT_ID = "-1003745214852";
+const DEFAULT_CONTROL_CHAT_IDS = "-1003745214852";
 const DEFAULT_TARGET_CHAT_ID = "-1001861714695";
 
 export default {
@@ -27,7 +27,7 @@ export default {
     }
 
     const controlChatIds = getControlChatIds(env);
-    const controlChatIdForLookup = controlChatIds[0] || DEFAULT_CONTROL_CHAT_ID;
+    const controlChatIdForLookup = controlChatIds[0] || "-1003745214852";
     const targetChatId = String(env.TARGET_CHAT_ID || DEFAULT_TARGET_CHAT_ID);
 
     if (!controlChatIds.includes(chatId)) {
@@ -66,6 +66,7 @@ export default {
     await notifyAdmin(env, {
       actor: message.from,
       sourceChatId: chatId,
+      sourceThreadId: threadId,
       target,
       targetChatId,
       reason: parsed.reason,
@@ -89,7 +90,7 @@ export default {
 };
 
 function getControlChatIds(env) {
-  const raw = String(env.CONTROL_CHAT_IDS || env.CONTROL_CHAT_ID || DEFAULT_CONTROL_CHAT_ID);
+  const raw = String(env.CONTROL_CHAT_IDS || env.CONTROL_CHAT_ID || DEFAULT_CONTROL_CHAT_IDS);
   return raw.split(",").map((x) => x.trim()).filter(Boolean);
 }
 
@@ -141,13 +142,14 @@ async function resolveTargetUser({ env, targetText, targetChatId, controlChatId,
   return { id: "", label: `@${username}` };
 }
 
-async function notifyAdmin(env, { actor, sourceChatId, target, targetChatId, reason, result }) {
+async function notifyAdmin(env, { actor, sourceChatId, sourceThreadId, target, targetChatId, reason, result }) {
   if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
 
   const text =
     `⛔ <b>Control ban</b>\n\n` +
     `<b>Покренуо:</b> ${escapeHtml(formatUser(actor))}\n` +
     `<b>Control chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
+    `<b>Control thread:</b> <code>${escapeHtml(sourceThreadId || "нема")}</code>\n` +
     `<b>Target:</b> ${escapeHtml(target.label || target.id)}\n` +
     `<b>User ID:</b> <code>${escapeHtml(target.id)}</code>\n` +
     `<b>Target chat:</b> <code>${escapeHtml(targetChatId)}</code>\n` +
