@@ -5,6 +5,8 @@ compatibility_date = "2025-01-01"
 [vars]
 ADMIN_CHAT_ID = "-1003860270266"
 ADMIN_THREAD_ID = "220"
+CONTROL_CHAT_IDS = "-1003745214852"
+TARGET_CHAT_ID = "-1001861714695"
 
 [observability]
 enabled = true
