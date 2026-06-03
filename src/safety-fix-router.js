@@ -20,8 +20,6 @@ export default {
     const commandText = String(message.text || "").trim();
     const lower = commandText.toLowerCase();
 
-    await rememberUserAndMessage({ env, message, chatId });
-
     if (isCmd(lower, ["/resetopomene", "/ресетопомене", "/resetwarn", "/opomene0"])) {
       return resetWarnings({ env, message, chatId, threadId, original: commandText });
     }
@@ -103,17 +101,6 @@ async function resetWarnings({ env, message, chatId, threadId, original }) {
 
   await env.MOD_STATE.delete(`warn:${chatId}:${targetId}`);
   return send(chatId, `✅ Опомене су ресетоване за User ID: <code>${esc(targetId)}</code>`, threadId);
-}
-
-async function rememberUserAndMessage({ env, message, chatId }) {
-  if (!env.MOD_STATE || !message.from?.id) return;
-
-  const user = message.from;
-  if (user.username) {
-    await env.MOD_STATE.put(`userbyname:${chatId}:${String(user.username).toLowerCase()}`, JSON.stringify({ id: String(user.id), username: user.username, updatedAt: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 90 });
-  }
-
-  await env.MOD_STATE.put(`userbyid:${chatId}:${user.id}`, JSON.stringify({ id: String(user.id), username: user.username || "", name: formatUser(user), updatedAt: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 90 });
 }
 
 function isTheologicalOrChurchDebate(value) {
