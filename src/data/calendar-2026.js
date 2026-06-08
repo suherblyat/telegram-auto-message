@@ -454,7 +454,7 @@ export const calendar2026 = {
     tropar: "Апостоли свети, молите милостивога Господа да опроштај грехова подари душама нашим.",
     kondak: "Као звезде пресветле Црква вас прославља, апостоли Христови, Карпе и Алфеје, јер проповедју просветисте народе.",
     prolog: "Охридски пролог за 26. мај: Свети апостоли Карп и Алфеј; Свети мученици Аверкије и Јелена.",
-    icon: "https://github.com/suherblyat/telegram-auto-message/blob/0c71956f5b8d005c45da05a263510dc96e322ea9/src/assets/icons/karp-alfej.jpg?raw=true",
+    icon: "https://raw.githubusercontent.com/suherblyat/telegram-auto-message/main/src/assets/icons/karp-alfej.jpg",
 
     note: "Почиње Апостолски пост. Пост траје до празника Светих апостола Петра и Павла."
   },
