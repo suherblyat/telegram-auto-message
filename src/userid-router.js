@@ -19,10 +19,6 @@ export default {
     const text = message.text.trim();
     const lower = text.toLowerCase();
 
-    if (isAnyCmd(lower)) {
-      await rememberUser(env, chatId, message.from);
-    }
-
     if (isCmd(lower, ["/chatid", "/четид", "/cid"])) {
       return send(chatId, `🆔 <b>Chat ID</b>\n\nChat ID: <code>${esc(chatId)}</code>\nThread ID: <code>${esc(threadId || "нема")}</code>\nTitle: ${esc(message.chat?.title || message.chat?.type || "?")}`, threadId);
     }
@@ -39,18 +35,24 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
+    await safeRememberUser(env, chatId, message.from);
+
     const repliedUser = getRepliedUser(message);
     if (repliedUser?.id) {
-      await rememberUser(env, chatId, repliedUser);
+      await safeRememberUser(env, chatId, repliedUser);
       return send(chatId, `🆔 <b>User ID</b>\n\nКорисник: ${esc(formatUser(repliedUser))}\nUser ID: <code>${esc(repliedUser.id)}</code>`, threadId);
     }
 
     const username = (text.match(/@[a-zA-Z0-9_]{3,32}/) || [""])[0].replace("@", "").toLowerCase();
     if (username) {
       if (!env.MOD_STATE) return send(chatId, "⚠️ MOD_STATE није подешен, не могу да тражим username из меморије.", threadId);
-      const found = await env.MOD_STATE.get(`userbyname:${chatId}:${username}`, "json");
-      if (found?.id) {
-        return send(chatId, `🆔 <b>User ID</b>\n\nКорисник: @${esc(username)}\nUser ID: <code>${esc(found.id)}</code>`, threadId);
+      try {
+        const found = await env.MOD_STATE.get(`userbyname:${chatId}:${username}`, "json");
+        if (found?.id) {
+          return send(chatId, `🆔 <b>User ID</b>\n\nКорисник: @${esc(username)}\nUser ID: <code>${esc(found.id)}</code>`, threadId);
+        }
+      } catch (error) {
+        return send(chatId, `⚠️ KV тренутно не ради или је лимит истрошен: ${esc(error?.message || "непозната грешка")}`, threadId);
       }
       return send(chatId, `⚠️ Немам ID за @${esc(username)}. Због штедње KV лимита више не памтим сваку поруку. Нека тај корисник пошаље неку команду боту, или reply-уј на његову поруку и пошаљи <code>/userid</code>.`, threadId);
     }
@@ -98,8 +100,7 @@ async function botStats({ env, message, chatId, threadId }) {
     `<b>Познати username у овом chatu:</b> <code>${esc(knownUsernames.label)}</code>`,
     `<b>Активне опомене у овом chatu:</b> <code>${esc(warnings.label)}</code>`,
     "",
-    "⚠️ <b>Налаз:</b> раније је код уписивао у KV за сваку текст поруку. То је вероватно појело лимит и ако људи нису користили команде.",
-    "✅ Сад је то смањено: KV памти корисника само кад пошаље команду или кад га ухватиш преко reply + /userid."
+    "✅ KV више не сме да блокира /календар, јер се не уписује на сваку команду."
   ];
 
   return send(chatId, lines.join("\n"), threadId);
@@ -162,16 +163,20 @@ function getRepliedUser(message) {
   return null;
 }
 
+async function safeRememberUser(env, chatId, user) {
+  try {
+    await rememberUser(env, chatId, user);
+  } catch {
+    // KV limit or KV error must never kill bot commands.
+  }
+}
+
 async function rememberUser(env, chatId, user) {
   if (!env.MOD_STATE || !user?.id) return;
   if (user.username) {
     await env.MOD_STATE.put(`userbyname:${chatId}:${String(user.username).toLowerCase()}`, JSON.stringify({ id: String(user.id), username: user.username, updatedAt: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 90 });
   }
   await env.MOD_STATE.put(`userbyid:${chatId}:${user.id}`, JSON.stringify({ id: String(user.id), username: user.username || "", name: formatUser(user), updatedAt: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 90 });
-}
-
-function isAnyCmd(t) {
-  return t.startsWith("/");
 }
 
 function isCmd(t, arr) {
