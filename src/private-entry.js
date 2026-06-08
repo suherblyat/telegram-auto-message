@@ -30,7 +30,7 @@ export default {
     const originalText = getMessageText(message).trim();
     const commandText = String(message.text || "").trim().toLowerCase();
 
-    const calendarResponse = handleCalendarOverrideCommand({ message, commandText });
+    const calendarResponse = await handleCalendarOverrideCommand({ message, commandText, env });
     if (calendarResponse) return calendarResponse;
 
     if (message.text && isReportCommand(commandText)) {
@@ -44,7 +44,7 @@ export default {
   }
 };
 
-function handleCalendarOverrideCommand({ message, commandText }) {
+async function handleCalendarOverrideCommand({ message, commandText, env }) {
   if (!message.text) return null;
 
   const chatId = message.chat.id;
@@ -60,7 +60,27 @@ function handleCalendarOverrideCommand({ message, commandText }) {
     const todayKey = getTodayKey();
     const today = getCalendarDay(todayKey);
     if (!today) return sendGroupMessage(chatId, missingDateMessage(todayKey), threadId);
-    return sendGroupMessage(chatId, formatCalendar(today), threadId);
+
+    const caption = formatCalendar(today);
+    const icon = normalizeGithubRawUrl(today.icon || "");
+
+    if (icon && env.BOT_TOKEN) {
+      const photoResult = await telegramApi(env, "sendPhoto", {
+        chat_id: chatId,
+        message_thread_id: threadId,
+        photo: icon,
+        caption,
+        parse_mode: "HTML"
+      });
+
+      if (photoResult.ok) {
+        return new Response("OK", { status: 200 });
+      }
+
+      return sendGroupMessage(chatId, `${caption}\n\n⚠️ <i>Икона није послата. Telegram разлог: ${escapeHtml(photoResult.description || "непознато")}</i>`, threadId);
+    }
+
+    return sendGroupMessage(chatId, caption, threadId);
   }
 
   if (isCommand(commandText, ["/sutra", "/сутра"])) {
@@ -72,6 +92,18 @@ function handleCalendarOverrideCommand({ message, commandText }) {
   if (isCommand(commandText, ["/nedelja", "/недеља"])) return sendGroupMessage(chatId, formatWeek(), threadId);
 
   return null;
+}
+
+function normalizeGithubRawUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+?)(\?raw=true)?$/i);
+  if (match) {
+    return `https://raw.githubusercontent.com/${match[1]}/${match[2]}/${match[3]}/${match[4]}`;
+  }
+
+  return url;
 }
 
 function isReportCommand(text) {
