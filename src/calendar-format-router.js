@@ -1,47 +1,29 @@
 import commandRouter from "./command-router.js";
 import { calendar2026 } from "./data/calendar-2026.js";
 
-const FASTING_OVERRIDES = {
+const MANUAL_FASTING_OVERRIDES = {
   "2026-05-27": { fasting: "Пост", fastingType: "уље" },
   "2026-05-29": { fasting: "Пост", fastingType: "уље" },
-
-  // Апостолски пост 2026: пон/сре/пет вода, уто/чет уље, суб/нед риба.
-  // Посебни празници у посту могу имати разрешење на рибу.
-  "2026-06-08": { fasting: "Пост", fastingType: "вода", note: "Почиње Апостолски пост. Пост на води." },
-  "2026-06-09": { fasting: "Пост", fastingType: "уље" },
-  "2026-06-10": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-11": { fasting: "Пост", fastingType: "уље" },
-  "2026-06-12": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-13": { fasting: "Пост", fastingType: "риба" },
-  "2026-06-14": { fasting: "Пост", fastingType: "риба" },
-  "2026-06-15": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-16": { fasting: "Пост", fastingType: "уље" },
-  "2026-06-17": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-18": { fasting: "Пост", fastingType: "уље" },
-  "2026-06-19": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-20": { fasting: "Пост", fastingType: "риба" },
-  "2026-06-21": { fasting: "Пост", fastingType: "риба" },
-  "2026-06-22": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-23": { fasting: "Пост", fastingType: "уље" },
   "2026-06-24": { fasting: "Пост", fastingType: "риба" },
-  "2026-06-25": { fasting: "Пост", fastingType: "уље" },
-  "2026-06-26": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-27": { fasting: "Пост", fastingType: "риба" },
-  "2026-06-28": { fasting: "Пост", fastingType: "риба" },
-  "2026-06-29": { fasting: "Пост", fastingType: "вода" },
-  "2026-06-30": { fasting: "Пост", fastingType: "уље" },
-  "2026-07-01": { fasting: "Пост", fastingType: "вода" },
-  "2026-07-02": { fasting: "Пост", fastingType: "уље" },
-  "2026-07-03": { fasting: "Пост", fastingType: "вода" },
-  "2026-07-04": { fasting: "Пост", fastingType: "риба" },
-  "2026-07-05": { fasting: "Пост", fastingType: "риба" },
-  "2026-07-06": { fasting: "Пост", fastingType: "вода" },
-  "2026-07-07": { fasting: "Пост", fastingType: "риба" },
-  "2026-07-08": { fasting: "Пост", fastingType: "вода" },
-  "2026-07-09": { fasting: "Пост", fastingType: "уље" },
-  "2026-07-10": { fasting: "Пост", fastingType: "вода" },
-  "2026-07-11": { fasting: "Пост", fastingType: "риба" }
+  "2026-07-07": { fasting: "Пост", fastingType: "риба" }
 };
+
+const APOSTLES_FAST_2026 = {
+  start: "2026-06-08",
+  end: "2026-07-11"
+};
+
+const APOSTLES_FAST_TYPES_BY_WEEKDAY = {
+  0: "риба",
+  1: "вода",
+  2: "уље",
+  3: "вода",
+  4: "уље",
+  5: "вода",
+  6: "риба"
+};
+
+const WEEK_COMMANDS = ["/nedelja", "/nedejla", "/nedelaj", "/недеља", "/недејла"];
 
 const RED_DAY_DATES = new Set([
   "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-14", "2026-01-19", "2026-01-20", "2026-01-27",
@@ -84,14 +66,14 @@ export default {
     const chatId = message.chat.id;
     const threadId = message.message_thread_id;
 
-    if (isCommand(text, ["/kalendar", "/календар"])) {
+    if (isCommand(text, ["/kalendar", "/kalnedar", "/calendar", "/календар"])) {
       const data = getCalendarDay(todayKey());
       if (!data) return sendMessage(chatId, missingMessage(todayKey()), threadId);
       if (data.icon) return sendPhoto(chatId, data.icon, formatCalendar(data), threadId);
       return sendMessage(chatId, formatCalendar(data), threadId);
     }
 
-    if (isCommand(text, ["/post", "/пост"])) {
+    if (isCommand(text, ["/post", "/fast", "/пост"])) {
       const data = getCalendarDay(todayKey());
       return sendMessage(chatId, data ? formatPost(data) : missingMessage(todayKey()), threadId);
     }
@@ -102,7 +84,7 @@ export default {
       return sendMessage(chatId, data ? formatTomorrow(data) : missingMessage(key), threadId);
     }
 
-    if (isCommand(text, ["/nedelja", "/недеља"])) {
+    if (isCommand(text, WEEK_COMMANDS)) {
       return sendMessage(chatId, formatWeek(), threadId);
     }
 
@@ -117,7 +99,27 @@ function isCommand(text, commands) {
 function getCalendarDay(key) {
   const base = calendar2026[key];
   if (!base) return null;
-  return { ...base, ...(FASTING_OVERRIDES[key] || {}) };
+
+  const apostlesFastOverride = getApostlesFast2026Override(key, base);
+  return { ...base, ...(apostlesFastOverride || {}), ...(MANUAL_FASTING_OVERRIDES[key] || {}) };
+}
+
+function getApostlesFast2026Override(key, base) {
+  if (key < APOSTLES_FAST_2026.start || key > APOSTLES_FAST_2026.end) return null;
+
+  const fastingType = APOSTLES_FAST_TYPES_BY_WEEKDAY[getUtcWeekday(key)];
+  const ruleNote = key === APOSTLES_FAST_2026.start ? "Почиње Апостолски пост. Пост на води." : "Апостолски пост.";
+
+  return {
+    fasting: "Пост",
+    fastingType,
+    note: base.note && !base.note.includes("Апостолски пост") ? `${base.note}\n${ruleNote}` : ruleNote,
+    apostlesFastRuleApplied: true
+  };
+}
+
+function getUtcWeekday(key) {
+  return new Date(`${key}T12:00:00Z`).getUTCDay();
 }
 
 function todayKey() {
