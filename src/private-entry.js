@@ -13,6 +13,21 @@ const FASTING_OVERRIDES = {
   "2026-06-14": { fasting: "Пост", fastingType: "риба", overrideApplied: true }
 };
 
+const APOSTLES_FAST_2026 = {
+  start: "2026-06-08",
+  end: "2026-07-11"
+};
+
+const APOSTLES_FAST_TYPES_BY_WEEKDAY = {
+  0: "риба",
+  1: "вода",
+  2: "уље",
+  3: "вода",
+  4: "уље",
+  5: "вода",
+  6: "риба"
+};
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") return originalWorker.fetch(request, env, ctx);
@@ -118,7 +133,28 @@ function isCommand(text, commands) {
 function getCalendarDay(dateKey) {
   const base = calendar2026[dateKey];
   if (!base) return null;
-  return { ...base, ...(FASTING_OVERRIDES[dateKey] || {}) };
+
+  const apostlesFastOverride = getApostlesFast2026Override(dateKey, base);
+  return { ...base, ...(apostlesFastOverride || {}), ...(FASTING_OVERRIDES[dateKey] || {}) };
+}
+
+function getApostlesFast2026Override(dateKey, base) {
+  if (dateKey < APOSTLES_FAST_2026.start || dateKey > APOSTLES_FAST_2026.end) return null;
+
+  const weekday = getUtcWeekday(dateKey);
+  const fastingType = APOSTLES_FAST_TYPES_BY_WEEKDAY[weekday];
+  const firstDayNote = dateKey === APOSTLES_FAST_2026.start ? "Почиње Апостолски пост. Пост на води." : "Апостолски пост.";
+
+  return {
+    fasting: "Пост",
+    fastingType,
+    note: base.note && !base.note.includes("Апостолски пост") ? `${base.note}\n${firstDayNote}` : firstDayNote,
+    apostlesFastRuleApplied: true
+  };
+}
+
+function getUtcWeekday(dateKey) {
+  return new Date(`${dateKey}T12:00:00Z`).getUTCDay();
 }
 
 function getTodayKey() { return formatDateKey(new Date()); }
