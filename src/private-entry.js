@@ -65,10 +65,42 @@ async function handleCalendarOverrideCommand({ message, commandText, env }) {
   const chatId = message.chat.id;
   const threadId = message.message_thread_id;
 
+  if (isCommand(commandText, ["/start", "/help", "/komande", "/commands", "/помоћ", "/команде"])) {
+    return sendGroupMessage(chatId, formatHelp(), threadId);
+  }
+
+  if (isCommand(commandText, ["/ping", "/test"])) {
+    return sendGroupMessage(chatId, "✅ Бот ради.", threadId);
+  }
+
   if (isCommand(commandText, ["/post", "/пост"])) {
     const todayKey = getTodayKey();
     const today = getCalendarDay(todayKey);
     return sendGroupMessage(chatId, today ? formatPost(today) : missingDateMessage(todayKey), threadId);
+  }
+
+  if (isCommand(commandText, ["/tropar", "/тропар"])) {
+    const todayKey = getTodayKey();
+    const today = getCalendarDay(todayKey);
+    return sendGroupMessage(chatId, today ? formatTropar(today) : missingDateMessage(todayKey), threadId);
+  }
+
+  if (isCommand(commandText, ["/kondak", "/кондак"])) {
+    const todayKey = getTodayKey();
+    const today = getCalendarDay(todayKey);
+    return sendGroupMessage(chatId, today ? formatKondak(today) : missingDateMessage(todayKey), threadId);
+  }
+
+  if (isCommand(commandText, ["/svpismo", "/svetopisimo", "/svetipismo", "/sveto_pismo", "/citanja", "/читанја", "/читања", "/свписмо", "/свето_писмо", "/apostol", "/апостол", "/jevandjelje", "/јеванђеље"])) {
+    const todayKey = getTodayKey();
+    const today = getCalendarDay(todayKey);
+    return sendGroupMessage(chatId, today ? formatScripture(today) : missingDateMessage(todayKey), threadId);
+  }
+
+  if (isCommand(commandText, ["/prolog", "/пролог"])) {
+    const todayKey = getTodayKey();
+    const today = getCalendarDay(todayKey);
+    return sendGroupMessage(chatId, today ? formatProlog(today) : missingDateMessage(todayKey), threadId);
   }
 
   if (isCommand(commandText, ["/kalendar", "/kalnedar", "/calendar", "/календар"])) {
@@ -181,6 +213,49 @@ function formatCalendar(data) {
 function formatPost(data) {
   const noteBlock = data.note ? `\n\n<b>Напомена</b>\n${escapeHtml(data.note)}` : "";
   return `☦️ <b>Пост за данас</b>\n\n📅 ${escapeHtml(data.civilDate)}\n\n${formatFastStatus(data)}${noteBlock}`;
+}
+
+function formatTropar(data) {
+  return `☦️ <b>Тропар за данас</b>\n\n` +
+    `📅 ${escapeHtml(data.civilDate)}\n` +
+    `<b>${escapeHtml(data.title || "Празник / светитељ дана")}</b>\n\n` +
+    `${escapeHtml(data.tropar || "Тропар још није уписан.")}\n\n` +
+    `<b>Кондак</b>\n${escapeHtml(data.kondak || "Кондак још није уписан.")}`;
+}
+
+function formatKondak(data) {
+  return `☦️ <b>Кондак за данас</b>\n\n` +
+    `📅 ${escapeHtml(data.civilDate)}\n` +
+    `<b>${escapeHtml(data.title || "Празник / светитељ дана")}</b>\n\n` +
+    `${escapeHtml(data.kondak || "Кондак још није уписан.")}`;
+}
+
+function formatScripture(data) {
+  return `☦️ <b>Свето Писмо за данас</b>\n\n` +
+    `📅 ${escapeHtml(data.civilDate)}\n` +
+    `<b>${escapeHtml(data.title || "Празник / светитељ дана")}</b>\n\n` +
+    `<b>Апостол</b>\n${escapeHtml(data.apostle || "Није уписано")}\n\n` +
+    `<b>Јеванђеље</b>\n${escapeHtml(data.gospel || "Није уписано")}`;
+}
+
+function formatProlog(data) {
+  return `☦️ <b>Пролог за данас</b>\n\n` +
+    `📅 ${escapeHtml(data.civilDate)}\n` +
+    `<b>${escapeHtml(data.title || "Празник / светитељ дана")}</b>\n\n` +
+    `${escapeHtml(data.prolog || "Пролог још није уписан.")}`;
+}
+
+function formatHelp() {
+  return "☦️ <b>Команде бота</b>\n\n" +
+    "<code>/kalendar</code>  календар за данас\n" +
+    "<code>/post</code>  пост за данас\n" +
+    "<code>/tropar</code>  тропар и кондак\n" +
+    "<code>/svpismo</code>  Апостол и Јеванђеље\n" +
+    "<code>/sutra</code>  календар за сутра\n" +
+    "<code>/nedelja</code>  наредних 7 дана\n" +
+    "<code>/prolog</code>  Пролог за данас\n" +
+    "<code>/prijavi</code>  пријава админима\n" +
+    "<code>/ping</code>  провера да ли бот ради";
 }
 
 function formatTomorrow(data) {
