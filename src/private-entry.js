@@ -28,6 +28,13 @@ const APOSTLES_FAST_TYPES_BY_WEEKDAY = {
   6: "риба"
 };
 
+const FIXED_SCRIPTURE_QUOTES = {
+  "матеј 23:27": {
+    reference: "Матеј 23:27",
+    text: "Тешко вама, књижевници и фарисеји, лицемери, што сте као окречени гробови, који споља изгледају лепи, а изнутра су пуни костију мртвачких и сваке нечистоте."
+  }
+};
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") return originalWorker.fetch(request, env, ctx);
@@ -91,10 +98,8 @@ async function handleCalendarOverrideCommand({ message, commandText, env }) {
     return sendGroupMessage(chatId, today ? formatKondak(today) : missingDateMessage(todayKey), threadId);
   }
 
-  if (isCommand(commandText, ["/svpismo", "/svetopisimo", "/svetipismo", "/sveto_pismo", "/citanja", "/читанја", "/читања", "/свписмо", "/свето_писмо", "/apostol", "/апостол", "/jevandjelje", "/јеванђеље"])) {
-    const todayKey = getTodayKey();
-    const today = getCalendarDay(todayKey);
-    return sendGroupMessage(chatId, today ? formatScripture(today) : missingDateMessage(todayKey), threadId);
+  if (isCommand(commandText, ["/svpismo", "/свписмо"])) {
+    return sendGroupMessage(chatId, formatFixedScripture(getCommandArgument(message.text)), threadId);
   }
 
   if (isCommand(commandText, ["/prolog", "/пролог"])) {
@@ -160,6 +165,22 @@ function isReportCommand(text) {
 
 function isCommand(text, commands) {
   return commands.some((command) => text === command || text.startsWith(command + "@") || text.startsWith(command + " "));
+}
+
+function getCommandArgument(text) {
+  return String(text || "").trim().replace(/^\/\S+\s*/u, "").trim();
+}
+
+function normalizeScriptureReference(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[.,;]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^мт\b/u, "матеј")
+    .replace(/^mt\b/u, "матеј")
+    .replace(/^matej\b/u, "матеј")
+    .replace(/^matthew\b/u, "матеј");
 }
 
 function getCalendarDay(dateKey) {
@@ -230,12 +251,13 @@ function formatKondak(data) {
     `${escapeHtml(data.kondak || "Кондак још није уписан.")}`;
 }
 
-function formatScripture(data) {
-  return `☦️ <b>Свето Писмо за данас</b>\n\n` +
-    `📅 ${escapeHtml(data.civilDate)}\n` +
-    `<b>${escapeHtml(data.title || "Празник / светитељ дана")}</b>\n\n` +
-    `<b>Апостол</b>\n${escapeHtml(data.apostle || "Није уписано")}\n\n` +
-    `<b>Јеванђеље</b>\n${escapeHtml(data.gospel || "Није уписано")}`;
+function formatFixedScripture(reference) {
+  const normalizedReference = normalizeScriptureReference(reference || "Матеј 23:27");
+  const quote = FIXED_SCRIPTURE_QUOTES[normalizedReference] || FIXED_SCRIPTURE_QUOTES["матеј 23:27"];
+
+  return `☦️ <b>Свето Писмо</b>\n\n` +
+    `<b>${escapeHtml(quote.reference)}</b>\n` +
+    `${escapeHtml(quote.text)}`;
 }
 
 function formatProlog(data) {
@@ -250,7 +272,7 @@ function formatHelp() {
     "<code>/kalendar</code>  календар за данас\n" +
     "<code>/post</code>  пост за данас\n" +
     "<code>/tropar</code>  тропар и кондак\n" +
-    "<code>/svpismo</code>  Апостол и Јеванђеље\n" +
+    "<code>/свписмо Матеј 23:27</code>  цитат\n" +
     "<code>/sutra</code>  календар за сутра\n" +
     "<code>/nedelja</code>  наредних 7 дана\n" +
     "<code>/prolog</code>  Пролог за данас\n" +
