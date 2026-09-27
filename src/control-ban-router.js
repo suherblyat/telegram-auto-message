@@ -40,7 +40,7 @@ export default {
     const allowed = await isAllowedModerator(env, targetChatId, actorId);
 
     if (!allowed) {
-      return send(message.chat.id, "⛔ Немаш дозволу за /ban.", threadId);
+      return new Response("OK", { status: 200 });
     }
 
     const replied = message.reply_to_message;
