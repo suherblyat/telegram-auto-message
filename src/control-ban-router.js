@@ -18,20 +18,28 @@ export default {
 
     const text = message.text.trim();
     const lower = text.toLowerCase();
-    if (!isCommand(lower, ["/ban", "/бан"])) return app.fetch(request, env, ctx);
-
     const chatId = String(message.chat.id);
     const targetChatId = String(env.TARGET_CHAT_ID || DEFAULT_TARGET_CHAT_ID);
     const threadId = message.message_thread_id;
+
+    if (isCommand(lower, ["/modadd", "/модадд"])) {
+      return manageModerator({ env, message, chatId, targetChatId, threadId, action: "add" });
+    }
+
+    if (isCommand(lower, ["/modremove", "/модремове"])) {
+      return manageModerator({ env, message, chatId, targetChatId, threadId, action: "remove" });
+    }
+
+    if (!isCommand(lower, ["/ban", "/бан"])) return app.fetch(request, env, ctx);
 
     if (chatId !== targetChatId) {
       return send(message.chat.id, "⛔ /ban ради само у главној групи као reply на поруку.", threadId);
     }
 
-    const allowed = getAllowedUserIds(env);
     const actorId = String(message.from?.id || "");
+    const allowed = await isAllowedModerator(env, targetChatId, actorId);
 
-    if (!allowed.length || !allowed.includes(actorId)) {
+    if (!allowed) {
       return send(message.chat.id, "⛔ Немаш дозволу за /ban.", threadId);
     }
 
@@ -79,6 +87,77 @@ export default {
   }
 };
 
+async function manageModerator({ env, message, chatId, targetChatId, threadId, action }) {
+  if (chatId !== targetChatId) {
+    return send(message.chat.id, "⛔ Ова команда ради само у главној групи.", threadId);
+  }
+
+  const actorId = String(message.from?.id || "");
+  const actorStatus = await tg(env, "getChatMember", {
+    chat_id: targetChatId,
+    user_id: Number(actorId)
+  });
+
+  if (!actorStatus?.ok || actorStatus.result?.status !== "creator") {
+    return send(message.chat.id, "⛔ Само owner групе може да мења ban модераторе.", threadId);
+  }
+
+  const target = message.reply_to_message?.from;
+  if (!target?.id || target.is_bot) {
+    return send(
+      message.chat.id,
+      action === "add"
+        ? "⚠️ Reply-уј на поруку човека коме желиш да даш право и напиши <code>/modadd</code>."
+        : "⚠️ Reply-уј на поруку човека коме желиш да одузмеш право и напиши <code>/modremove</code>.",
+      threadId
+    );
+  }
+
+  if (!env.MOD_STATE) {
+    return send(message.chat.id, "❌ MOD_STATE KV није повезан, не могу да сачувам whitelist.", threadId);
+  }
+
+  const targetId = String(target.id);
+  const key = moderatorKey(targetChatId, targetId);
+
+  try {
+    if (action === "add") {
+      await env.MOD_STATE.put(key, JSON.stringify({
+        userId: targetId,
+        username: target.username || "",
+        addedBy: actorId,
+        addedAt: new Date().toISOString()
+      }));
+      return send(message.chat.id, `✅ ${esc(formatUser(target))} сада може да користи reply + <code>/ban разлог</code>.`, threadId);
+    }
+
+    await env.MOD_STATE.delete(key);
+    return send(message.chat.id, `✅ ${esc(formatUser(target))} више нема право на /ban.`, threadId);
+  } catch (error) {
+    return send(message.chat.id, `❌ Нисам успео да изменим whitelist: ${esc(error?.message || "KV грешка")}`, threadId);
+  }
+}
+
+async function isAllowedModerator(env, chatId, userId) {
+  if (!userId) return false;
+
+  const staticIds = getAllowedUserIds(env);
+  if (staticIds.includes(String(userId))) return true;
+
+  if (!env.MOD_STATE) return false;
+
+  try {
+    const value = await env.MOD_STATE.get(moderatorKey(chatId, userId));
+    return Boolean(value);
+  } catch {
+    return false;
+  }
+}
+
+function moderatorKey(chatId, userId) {
+  return `banmod:${chatId}:${userId}`;
+}
+
 function getAllowedUserIds(env) {
   const raw = String(env.CONTROL_USER_IDS || env.MODERATOR_USER_IDS || "").trim();
   return raw ? raw.split(",").map((x) => x.trim()).filter(Boolean) : [];
@@ -115,6 +194,12 @@ function send(chatId, text, threadId) {
     status: 200,
     headers: { "Content-Type": "application/json" }
   });
+}
+
+function formatUser(user) {
+  if (!user) return "Непознат";
+  if (user.username) return `@${user.username}`;
+  return `${user.first_name || ""} ${user.last_name || ""}`.trim() || String(user.id || "Непознат");
 }
 
 function esc(value) {
