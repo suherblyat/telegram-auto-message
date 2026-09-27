@@ -27,20 +27,42 @@ export default {
     }
 
     const controlChatIds = getControlChatIds(env);
-    const controlChatIdForLookup = controlChatIds[0] || "-1003745214852";
+    const controlChatIdForLookup = controlChatIds[0] || DEFAULT_CONTROL_CHAT_IDS;
     const targetChatId = String(env.TARGET_CHAT_ID || DEFAULT_TARGET_CHAT_ID);
 
     if (!controlChatIds.includes(chatId)) {
       return sendMessage(message.chat.id, "⛔ Команда /ban ради само у посебним control групама.", threadId);
     }
 
+    const allowedUserIds = getAllowedUserIds(env);
+    if (allowedUserIds.length > 0 && !allowedUserIds.includes(String(message.from?.id || ""))) {
+      await notifyUnauthorizedAttempt(env, {
+        actor: message.from,
+        sourceChatId: chatId,
+        sourceThreadId: threadId,
+        rawCommand: text
+      });
+
+      return sendMessage(
+        message.chat.id,
+        "⛔ Немаш дозволу за /ban. Ниси на whitelist-и модератора бота.",
+        threadId
+      );
+    }
+
     const parsed = parseBanCommand(text);
-    const target = await resolveTargetUser({ env, targetText: parsed.targetText, targetChatId, controlChatId: chatId, fallbackControlChatId: controlChatIdForLookup });
+    const target = await resolveTargetUser({
+      env,
+      targetText: parsed.targetText,
+      targetChatId,
+      controlChatId: chatId,
+      fallbackControlChatId: controlChatIdForLookup
+    });
 
     if (!target.id) {
       return sendMessage(
         message.chat.id,
-        "⚠️ Нисам нашао корисника.\n\nКористи:\n<code>/ban 123456789 разлог</code>\n\nИли:\n<code>/ban @username разлог</code>\n\nUsername ради само ако је бот већ видео тог корисника у групи.",
+        "⚠️ Нисам нашао корисника.\n\nКористи:\n<code>/ban 123456789 разлог</code>\n\nИли:\n<code>/ban @username разлог</code>\n\nUsername ради само ако је бот већ запамтио тог корисника. Најпоузданије је користити User ID.",
         threadId
       );
     }
@@ -53,13 +75,27 @@ export default {
       );
     }
 
+    const status = await telegramApi(env, "getChatMember", {
+      chat_id: targetChatId,
+      user_id: Number(target.id)
+    });
+
+    const targetStatus = status?.result?.status || "unknown";
+    if (targetStatus === "creator" || targetStatus === "administrator") {
+      return sendMessage(
+        message.chat.id,
+        `⛔ Не могу да банујем owner/admin налог преко ове команде.\n\nUser ID: <code>${escapeHtml(target.id)}</code>`,
+        threadId
+      );
+    }
+
     const result = await telegramApi(env, "banChatMember", {
       chat_id: targetChatId,
       user_id: Number(target.id),
       revoke_messages: true
     });
 
-    if (env.MOD_STATE) {
+    if (result.ok && env.MOD_STATE) {
       await env.MOD_STATE.delete(`warn:${targetChatId}:${target.id}`);
     }
 
@@ -83,7 +119,7 @@ export default {
 
     return sendMessage(
       message.chat.id,
-      `✅ Корисник је избачен из главне групе.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(parsed.reason)}\nОпомене су ресетоване.`,
+      `✅ Корисник је банован из главне групе.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(parsed.reason)}\nОпомене су ресетоване.`,
       threadId
     );
   }
@@ -91,6 +127,12 @@ export default {
 
 function getControlChatIds(env) {
   const raw = String(env.CONTROL_CHAT_IDS || env.CONTROL_CHAT_ID || DEFAULT_CONTROL_CHAT_IDS);
+  return raw.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+function getAllowedUserIds(env) {
+  const raw = String(env.CONTROL_USER_IDS || env.MODERATOR_USER_IDS || "").trim();
+  if (!raw) return [];
   return raw.split(",").map((x) => x.trim()).filter(Boolean);
 }
 
@@ -148,6 +190,7 @@ async function notifyAdmin(env, { actor, sourceChatId, sourceThreadId, target, t
   const text =
     `⛔ <b>Control ban</b>\n\n` +
     `<b>Покренуо:</b> ${escapeHtml(formatUser(actor))}\n` +
+    `<b>Actor ID:</b> <code>${escapeHtml(actor?.id || "?")}</code>\n` +
     `<b>Control chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
     `<b>Control thread:</b> <code>${escapeHtml(sourceThreadId || "нема")}</code>\n` +
     `<b>Target:</b> ${escapeHtml(target.label || target.id)}\n` +
@@ -155,6 +198,26 @@ async function notifyAdmin(env, { actor, sourceChatId, sourceThreadId, target, t
     `<b>Target chat:</b> <code>${escapeHtml(targetChatId)}</code>\n` +
     `<b>Разлог:</b> ${escapeHtml(reason || "није наведен")}\n` +
     `<b>Result:</b> <code>${escapeHtml(JSON.stringify(result))}</code>`;
+
+  await telegramApi(env, "sendMessage", {
+    chat_id: env.ADMIN_CHAT_ID,
+    message_thread_id: env.ADMIN_THREAD_ID ? Number(env.ADMIN_THREAD_ID) : undefined,
+    text,
+    parse_mode: "HTML",
+    disable_web_page_preview: true
+  });
+}
+
+async function notifyUnauthorizedAttempt(env, { actor, sourceChatId, sourceThreadId, rawCommand }) {
+  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
+
+  const text =
+    `⚠️ <b>Неовлашћен /ban покушај</b>\n\n` +
+    `<b>Корисник:</b> ${escapeHtml(formatUser(actor))}\n` +
+    `<b>User ID:</b> <code>${escapeHtml(actor?.id || "?")}</code>\n` +
+    `<b>Control chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
+    `<b>Thread:</b> <code>${escapeHtml(sourceThreadId || "нема")}</code>\n` +
+    `<b>Команда:</b> <code>${escapeHtml(rawCommand || "")}</code>`;
 
   await telegramApi(env, "sendMessage", {
     chat_id: env.ADMIN_CHAT_ID,
