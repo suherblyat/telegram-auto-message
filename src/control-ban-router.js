@@ -83,6 +83,13 @@ export default {
       return send(message.chat.id, `❌ Ban није успео: ${esc(result?.description || "непозната грешка")}`, threadId);
     }
 
+    await notifyOwnerOfBan(env, {
+      targetChatId,
+      moderator: message.from,
+      target,
+      reason
+    });
+
     return send(message.chat.id, `✅ Корисник је банован.\nРазлог: ${esc(reason)}`, threadId);
   }
 };
@@ -135,6 +142,31 @@ async function manageModerator({ env, message, chatId, targetChatId, threadId, a
     return send(message.chat.id, `✅ ${esc(formatUser(target))} више нема право на /ban.`, threadId);
   } catch (error) {
     return send(message.chat.id, `❌ Нисам успео да изменим whitelist: ${esc(error?.message || "KV грешка")}`, threadId);
+  }
+}
+
+async function notifyOwnerOfBan(env, { targetChatId, moderator, target, reason }) {
+  try {
+    const admins = await tg(env, "getChatAdministrators", {
+      chat_id: targetChatId
+    });
+
+    const owner = admins?.result?.find((member) => member?.status === "creator")?.user;
+    if (!owner?.id) return;
+
+    await tg(env, "sendMessage", {
+      chat_id: Number(owner.id),
+      text:
+        `⛔ <b>Ban у групи</b>\n\n` +
+        `<b>Банован:</b> ${esc(formatUser(target))}\n` +
+        `<b>User ID:</b> <code>${esc(target?.id || "?")}</code>\n` +
+        `<b>Бановао:</b> ${esc(formatUser(moderator))}\n` +
+        `<b>Разлог:</b> ${esc(reason || "није наведен")}`,
+      parse_mode: "HTML",
+      disable_web_page_preview: true
+    });
+  } catch {
+    // Private notification must never make a successful ban fail.
   }
 }
 
