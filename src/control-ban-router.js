@@ -26,16 +26,21 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
-    const controlChatIds = getControlChatIds(env);
-    const controlChatIdForLookup = controlChatIds[0] || DEFAULT_CONTROL_CHAT_IDS;
     const targetChatId = String(env.TARGET_CHAT_ID || DEFAULT_TARGET_CHAT_ID);
+    const controlChatIds = getControlChatIds(env);
+    const allowedUserIds = getAllowedUserIds(env);
+    const actorId = String(message.from?.id || "");
 
-    if (!controlChatIds.includes(chatId)) {
-      return sendMessage(message.chat.id, "⛔ Команда /ban ради само у посебним control групама.", threadId);
+    // Fail closed: delegated bans do not work until an explicit moderator whitelist exists.
+    if (allowedUserIds.length === 0) {
+      return sendMessage(
+        message.chat.id,
+        "⛔ /ban је закључан. CONTROL_USER_IDS whitelist још није подешен.",
+        threadId
+      );
     }
 
-    const allowedUserIds = getAllowedUserIds(env);
-    if (allowedUserIds.length > 0 && !allowedUserIds.includes(String(message.from?.id || ""))) {
+    if (!allowedUserIds.includes(actorId)) {
       await notifyUnauthorizedAttempt(env, {
         actor: message.from,
         sourceChatId: chatId,
@@ -50,80 +55,182 @@ export default {
       );
     }
 
-    const parsed = parseBanCommand(text);
-    const target = await resolveTargetUser({
-      env,
-      targetText: parsed.targetText,
-      targetChatId,
-      controlChatId: chatId,
-      fallbackControlChatId: controlChatIdForLookup
-    });
-
-    if (!target.id) {
-      return sendMessage(
-        message.chat.id,
-        "⚠️ Нисам нашао корисника.\n\nКористи:\n<code>/ban 123456789 разлог</code>\n\nИли:\n<code>/ban @username разлог</code>\n\nUsername ради само ако је бот већ запамтио тог корисника. Најпоузданије је користити User ID.",
-        threadId
-      );
+    // Preferred mode: in the main group, reply directly to the offending message.
+    // Example: reply -> /ban спам
+    if (chatId === targetChatId) {
+      return handleReplyBan({ env, message, chatId, threadId, text, targetChatId });
     }
 
-    if (!parsed.reason) {
-      return sendMessage(
-        message.chat.id,
-        `⚠️ Додај разлог.\n\nПример:\n<code>/ban ${escapeHtml(target.label || target.id)} богохулни спам</code>`,
-        threadId
-      );
-    }
-
-    const status = await telegramApi(env, "getChatMember", {
-      chat_id: targetChatId,
-      user_id: Number(target.id)
-    });
-
-    const targetStatus = status?.result?.status || "unknown";
-    if (targetStatus === "creator" || targetStatus === "administrator") {
-      return sendMessage(
-        message.chat.id,
-        `⛔ Не могу да банујем owner/admin налог преко ове команде.\n\nUser ID: <code>${escapeHtml(target.id)}</code>`,
-        threadId
-      );
-    }
-
-    const result = await telegramApi(env, "banChatMember", {
-      chat_id: targetChatId,
-      user_id: Number(target.id),
-      revoke_messages: true
-    });
-
-    if (result.ok && env.MOD_STATE) {
-      await env.MOD_STATE.delete(`warn:${targetChatId}:${target.id}`);
-    }
-
-    await notifyAdmin(env, {
-      actor: message.from,
-      sourceChatId: chatId,
-      sourceThreadId: threadId,
-      target,
-      targetChatId,
-      reason: parsed.reason,
-      result
-    });
-
-    if (!result.ok) {
-      return sendMessage(
-        message.chat.id,
-        `❌ Ban није успео.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(result.description || "непозната грешка")}`,
-        threadId
-      );
+    // Fallback mode: remote control group can still ban by numeric ID or remembered username.
+    if (controlChatIds.includes(chatId)) {
+      return handleControlGroupBan({ env, message, chatId, threadId, text, targetChatId, controlChatIds });
     }
 
     return sendMessage(
       message.chat.id,
-      `✅ Корисник је банован из главне групе.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(parsed.reason)}\nОпомене су ресетоване.`,
+      "⛔ /ban ради само у главној групи преко reply-а или у овлашћеној control групи.",
       threadId
     );
   }
 };
+
+async function handleReplyBan({ env, message, chatId, threadId, text, targetChatId }) {
+  const replied = message.reply_to_message;
+  const targetUser = replied?.from;
+  const reason = getReplyBanReason(text);
+
+  if (!replied) {
+    return sendMessage(
+      message.chat.id,
+      "⚠️ У главној групи /ban ради само као reply на поруку корисника.\n\nПример: reply на спам поруку → <code>/ban спам</code>",
+      threadId
+    );
+  }
+
+  if (!targetUser?.id) {
+    return sendMessage(
+      message.chat.id,
+      "⛔ Не могу безбедно да утврдим User ID из те поруке. Ово се дешава код channel/anonymous admin порука, па бан није извршен.",
+      threadId
+    );
+  }
+
+  if (targetUser.is_bot) {
+    return sendMessage(message.chat.id, "⛔ Ова команда не банује ботове.", threadId);
+  }
+
+  if (String(targetUser.id) === String(message.from?.id || "")) {
+    return sendMessage(message.chat.id, "⛔ Не можеш овом командом да банујеш самог себе.", threadId);
+  }
+
+  if (!reason) {
+    return sendMessage(
+      message.chat.id,
+      "⚠️ Додај кратак разлог.\n\nПример: <code>/ban спам</code>",
+      threadId
+    );
+  }
+
+  const target = {
+    id: String(targetUser.id),
+    label: formatUser(targetUser)
+  };
+
+  return executeBan({
+    env,
+    message,
+    sourceChatId: chatId,
+    sourceThreadId: threadId,
+    target,
+    targetChatId,
+    reason,
+    mode: "reply"
+  });
+}
+
+async function handleControlGroupBan({ env, message, chatId, threadId, text, targetChatId, controlChatIds }) {
+  const parsed = parseControlBanCommand(text);
+  const controlChatIdForLookup = controlChatIds[0] || DEFAULT_CONTROL_CHAT_IDS;
+
+  const target = await resolveTargetUser({
+    env,
+    targetText: parsed.targetText,
+    targetChatId,
+    controlChatId: chatId,
+    fallbackControlChatId: controlChatIdForLookup
+  });
+
+  if (!target.id) {
+    return sendMessage(
+      message.chat.id,
+      "⚠️ Нисам нашао корисника.\n\nКористи:\n<code>/ban 123456789 разлог</code>\n\nИли:\n<code>/ban @username разлог</code>\n\nНајпоузданије је користити User ID.",
+      threadId
+    );
+  }
+
+  if (!parsed.reason) {
+    return sendMessage(
+      message.chat.id,
+      `⚠️ Додај разлог.\n\nПример:\n<code>/ban ${escapeHtml(target.label || target.id)} спам</code>`,
+      threadId
+    );
+  }
+
+  return executeBan({
+    env,
+    message,
+    sourceChatId: chatId,
+    sourceThreadId: threadId,
+    target,
+    targetChatId,
+    reason: parsed.reason,
+    mode: "control"
+  });
+}
+
+async function executeBan({ env, message, sourceChatId, sourceThreadId, target, targetChatId, reason, mode }) {
+  const status = await telegramApi(env, "getChatMember", {
+    chat_id: targetChatId,
+    user_id: Number(target.id)
+  });
+
+  if (!status?.ok) {
+    return sendMessage(
+      message.chat.id,
+      `❌ Не могу да проверим корисника пре ban-а.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(status?.description || "непозната Telegram грешка")}`,
+      sourceThreadId
+    );
+  }
+
+  const targetStatus = status?.result?.status || "unknown";
+  if (targetStatus === "creator" || targetStatus === "administrator") {
+    return sendMessage(
+      message.chat.id,
+      `⛔ Не могу да банујем owner/admin налог преко ове команде.\n\nUser ID: <code>${escapeHtml(target.id)}</code>`,
+      sourceThreadId
+    );
+  }
+
+  const result = await telegramApi(env, "banChatMember", {
+    chat_id: targetChatId,
+    user_id: Number(target.id),
+    // Safer default: do not wipe the user's full message history automatically.
+    revoke_messages: false
+  });
+
+  if (result.ok && env.MOD_STATE) {
+    try {
+      await env.MOD_STATE.delete(`warn:${targetChatId}:${target.id}`);
+    } catch {
+      // A successful Telegram ban must not be reported as failed just because KV cleanup failed.
+    }
+  }
+
+  await notifyAdmin(env, {
+    actor: message.from,
+    sourceChatId,
+    sourceThreadId,
+    target,
+    targetChatId,
+    reason,
+    result,
+    mode
+  });
+
+  if (!result.ok) {
+    return sendMessage(
+      message.chat.id,
+      `❌ Ban није успео.\n\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(result.description || "непозната грешка")}`,
+      sourceThreadId
+    );
+  }
+
+  return sendMessage(
+    message.chat.id,
+    `✅ Корисник је банован.\n\nКорисник: ${escapeHtml(target.label || target.id)}\nUser ID: <code>${escapeHtml(target.id)}</code>\nРазлог: ${escapeHtml(reason)}`,
+    sourceThreadId
+  );
+}
 
 function getControlChatIds(env) {
   const raw = String(env.CONTROL_CHAT_IDS || env.CONTROL_CHAT_ID || DEFAULT_CONTROL_CHAT_IDS);
@@ -136,7 +243,14 @@ function getAllowedUserIds(env) {
   return raw.split(",").map((x) => x.trim()).filter(Boolean);
 }
 
-function parseBanCommand(text) {
+function getReplyBanReason(text) {
+  return String(text || "")
+    .replace(/^\/\S+\s*/u, "")
+    .trim()
+    .slice(0, 500);
+}
+
+function parseControlBanCommand(text) {
   const args = text.replace(/^\/\S+\s*/u, "").trim();
   const targetMatch = args.match(/^(@[a-zA-Z0-9_]{3,32}|\d{5,})/);
 
@@ -184,15 +298,16 @@ async function resolveTargetUser({ env, targetText, targetChatId, controlChatId,
   return { id: "", label: `@${username}` };
 }
 
-async function notifyAdmin(env, { actor, sourceChatId, sourceThreadId, target, targetChatId, reason, result }) {
+async function notifyAdmin(env, { actor, sourceChatId, sourceThreadId, target, targetChatId, reason, result, mode }) {
   if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return;
 
   const text =
-    `⛔ <b>Control ban</b>\n\n` +
+    `⛔ <b>Delegated ban</b>\n\n` +
+    `<b>Mode:</b> ${escapeHtml(mode || "?")}\n` +
     `<b>Покренуо:</b> ${escapeHtml(formatUser(actor))}\n` +
     `<b>Actor ID:</b> <code>${escapeHtml(actor?.id || "?")}</code>\n` +
-    `<b>Control chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
-    `<b>Control thread:</b> <code>${escapeHtml(sourceThreadId || "нема")}</code>\n` +
+    `<b>Source chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
+    `<b>Thread:</b> <code>${escapeHtml(sourceThreadId || "нема")}</code>\n` +
     `<b>Target:</b> ${escapeHtml(target.label || target.id)}\n` +
     `<b>User ID:</b> <code>${escapeHtml(target.id)}</code>\n` +
     `<b>Target chat:</b> <code>${escapeHtml(targetChatId)}</code>\n` +
@@ -215,7 +330,7 @@ async function notifyUnauthorizedAttempt(env, { actor, sourceChatId, sourceThrea
     `⚠️ <b>Неовлашћен /ban покушај</b>\n\n` +
     `<b>Корисник:</b> ${escapeHtml(formatUser(actor))}\n` +
     `<b>User ID:</b> <code>${escapeHtml(actor?.id || "?")}</code>\n` +
-    `<b>Control chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
+    `<b>Chat:</b> <code>${escapeHtml(sourceChatId || "?")}</code>\n` +
     `<b>Thread:</b> <code>${escapeHtml(sourceThreadId || "нема")}</code>\n` +
     `<b>Команда:</b> <code>${escapeHtml(rawCommand || "")}</code>`;
 
