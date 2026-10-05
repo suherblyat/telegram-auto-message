@@ -1,5 +1,5 @@
 import originalWorker from "./index.js";
-import { calendar2026 } from "./data/calendar-2026.js";
+import { calendar2026 } from "./data/calendar-all.js";
 
 const FASTING_OVERRIDES = {
   "2026-05-27": { fasting: "Пост", fastingType: "уље", overrideApplied: true },
@@ -49,18 +49,12 @@ export default {
     const message = update.message || update.edited_message;
     if (!message || message.from?.is_bot) return originalWorker.fetch(request, env, ctx);
 
-    const originalText = getMessageText(message).trim();
     const commandText = String(message.text || "").trim().toLowerCase();
 
     const calendarResponse = await handleCalendarOverrideCommand({ message, commandText, env });
     if (calendarResponse) return calendarResponse;
 
-    if (message.text && isReportCommand(commandText)) {
-      return handleReportCommand({ message, env, originalText: message.text.trim() });
-    }
 
-    const hardDecision = await hardModerationCheck({ message, env, originalText });
-    if (hardDecision) return hardDecision;
 
     return originalWorker.fetch(request, env, ctx);
   }
@@ -156,11 +150,6 @@ function normalizeGithubRawUrl(value) {
   }
 
   return url;
-}
-
-function isReportCommand(text) {
-  const commands = ["/prijava", "/prijavi", "/пријава", "/пријави", "/report"];
-  return commands.some((command) => text === command || text.startsWith(command + " ") || text.startsWith(command + "@"));
 }
 
 function isCommand(text, commands) {
@@ -276,7 +265,8 @@ function formatHelp() {
     "<code>/sutra</code>  календар за сутра\n" +
     "<code>/nedelja</code>  наредних 7 дана\n" +
     "<code>/prolog</code>  Пролог за данас\n" +
-    "<code>/prijavi</code>  пријава админима\n" +
+    "<code>/icons</code>  списак икона\n" +
+    "<code>/ikona назив</code>  икона по називу\n" +
     "<code>/ping</code>  провера да ли бот ради";
 }
 
@@ -310,92 +300,6 @@ function formatFastStatus(data) {
 }
 
 function missingDateMessage(dateKey) { return `☦️ За датум ${escapeHtml(dateKey)} још нису додати подаци у календар.`; }
-
-async function handleReportCommand({ message, env, originalText }) {
-  const chatId = message.chat.id;
-  const threadId = message.message_thread_id;
-  const details = getReportDetails(originalText);
-
-  if (!message.reply_to_message && !details.note && !details.mentionedUser) {
-    return sendGroupMessage(chatId, "☦️ <b>Пријава</b>\n\nМожеш овако:\n• reply на поруку + <code>/пријави</code>\n• <code>/пријави @username</code>\n• <code>/пријави @username објашњење</code>\n• <code>/пријави објашњење проблема</code>", threadId);
-  }
-
-  const result = await sendUserReport({ env, message, chatId, threadId, details });
-  if (result.ok) return sendGroupMessage(chatId, "✅ Пријава је послата админима.", threadId);
-  return sendGroupMessage(chatId, `⚠️ Пријава није послата. Разлог: ${escapeHtml(result.description || "непозната грешка")}`, threadId);
-}
-
-async function hardModerationCheck({ message, env, originalText }) {
-  const chatId = message.chat.id;
-  const threadId = message.message_thread_id;
-  const text = normalizeText(originalText);
-  const userId = message.from?.id;
-  if (!userId) return null;
-
-  const mediaDecision = getBlockedMediaDecision(message, env);
-  const textDecision = getSevereTextDecision(text);
-  const decision = textDecision || mediaDecision;
-  if (!decision) return null;
-
-  const status = await getMemberStatus({ env, chatId, userId });
-  const isPrivileged = status === "creator" || status === "administrator";
-  if (isPrivileged) {
-    await sendAdminAlert({ env, title: "High risk од admin-а/owner-а", severity: "HIGH", action: "admin_exempt", reason: decision.reason, message, originalText, extra: "Бот не банује admin/owner налоге. Провери ручно." });
-    return sendGroupMessage(chatId, "☦️ <b>Опомена</b>\n\nПорука је означена као тежак прекршај, али корисник је admin/owner. Админи су обавештени.", threadId);
-  }
-
-  const deleteResult = await telegramApi(env, "deleteMessage", { chat_id: chatId, message_id: message.message_id });
-  const banResult = await telegramApi(env, "banChatMember", { chat_id: chatId, user_id: userId, revoke_messages: true });
-  await sendAdminAlert({ env, title: banResult.ok ? "High risk ban" : "High risk ban није успео", severity: banResult.ok ? "CRITICAL" : "ERROR", action: "delete_and_ban", reason: decision.reason, message, originalText, extra: `deleteMessage: ${JSON.stringify(deleteResult)}\nbanChatMember: ${JSON.stringify(banResult)}` });
-  if (!banResult.ok) return sendGroupMessage(chatId, "⚠️ Тежак прекршај је детектован, али ban није успео. Провери дозволе бота.", threadId);
-  return sendGroupMessage(chatId, "⛔ Корисник је уклоњен из групе због тешког прекршаја.", threadId);
-}
-
-function getBlockedMediaDecision(message, env) {
-  const mediaLockdown = String(env.MEDIA_LOCKDOWN || "false").toLowerCase() === "true";
-  if (!mediaLockdown) return null;
-  if (hasAnyMedia(message)) return { reason: "media lockdown је укључен: медија није дозвољена за non-admin кориснике" };
-  return null;
-}
-
-function hasAnyMedia(message) {
-  const isGifDocument = message.document?.mime_type === "image/gif";
-  return Boolean(message.photo || message.video || message.animation || message.sticker || message.audio || message.voice || message.video_note || isGifDocument);
-}
-
-function getSevereTextDecision(text) {
-  if (!text) return null;
-  if (containsAny(text, ["јебем бога", "jebem boga", "jebo boga", "јебо бога"])) return { reason: "тешка псовка усмерена на светињу" };
-  return null;
-}
-
-function getMessageText(message) { return message.text || message.caption || ""; }
-
-function getReportDetails(text) {
-  const cleaned = String(text || "").replace(/^\/\S+\s*/u, "").trim();
-  const mentioned = cleaned.match(/@[a-zA-Z0-9_]{3,32}/)?.[0] || "";
-  const note = mentioned ? cleaned.replace(mentioned, "").trim() : cleaned;
-  return { mentionedUser: mentioned, note };
-}
-
-async function sendUserReport({ env, message, chatId, threadId, details }) {
-  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return { ok: false, description: "ADMIN_CHAT_ID или BOT_TOKEN није подешен." };
-  const target = message.reply_to_message?.from;
-  const reportedMessage = message.reply_to_message?.text || message.reply_to_message?.caption || "";
-  const report = `🚨 <b>Пријава корисника</b>\n\n<b>Пријавио:</b> ${escapeHtml(formatUser(message.from))}\n<b>Chat ID:</b> <code>${escapeHtml(chatId)}</code>\n<b>Thread ID:</b> <code>${escapeHtml(threadId || "нема")}</code>\n\n<b>Пријављени:</b> ${escapeHtml(target ? formatUser(target) : (details.mentionedUser || "није наведен"))}\n<b>Разлог:</b> ${escapeHtml(details.note || "није наведен")}\n\n<b>Порука:</b>\n${escapeHtml(reportedMessage || "нема reply поруке")}`;
-  return telegramApi(env, "sendMessage", { chat_id: env.ADMIN_CHAT_ID, message_thread_id: env.ADMIN_THREAD_ID ? Number(env.ADMIN_THREAD_ID) : undefined, text: report, parse_mode: "HTML", disable_web_page_preview: true });
-}
-
-async function sendAdminAlert({ env, title, severity, action, reason, message, originalText, extra = "" }) {
-  if (!env.BOT_TOKEN || !env.ADMIN_CHAT_ID) return { ok: false };
-  const report = `⚠️ <b>${escapeHtml(title)}</b>\n\n<b>Корисник:</b> ${escapeHtml(formatUser(message.from))}\n<b>User ID:</b> ${escapeHtml(message.from?.id || "?")}\n<b>Chat ID:</b> ${escapeHtml(message.chat?.id || "?")}\n<b>Ниво:</b> ${escapeHtml(severity)}\n<b>Акција:</b> ${escapeHtml(action)}\n<b>Разлог:</b> ${escapeHtml(reason)}\n\n<b>Порука:</b>\n${escapeHtml(String(originalText || "").slice(0, 3000))}\n\n${escapeHtml(extra)}`;
-  return telegramApi(env, "sendMessage", { chat_id: env.ADMIN_CHAT_ID, message_thread_id: env.ADMIN_THREAD_ID ? Number(env.ADMIN_THREAD_ID) : undefined, text: report, parse_mode: "HTML", disable_web_page_preview: true });
-}
-
-async function getMemberStatus({ env, chatId, userId }) {
-  const result = await telegramApi(env, "getChatMember", { chat_id: chatId, user_id: userId });
-  return result?.result?.status || "unknown";
-}
 
 async function telegramApi(env, method, body) {
   if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN није подешен." };

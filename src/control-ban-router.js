@@ -1,239 +1,59 @@
 import app from "./userid-router.js";
+import { icons } from "./data/icons.js";
+import { calendar2026 } from "./data/calendar-all.js";
 
-const DEFAULT_TARGET_CHAT_ID = "-1001861714695";
-
+// Commands only. Ordinary messages, edits, media and moderation commands are ignored.
 export default {
   async fetch(request, env, ctx) {
-    if (request.method !== "POST") return app.fetch(request, env, ctx);
-
+    if (request.method !== "POST") return new Response("commands-only: moderation disabled");
     let update;
-    try {
-      update = await request.clone().json();
-    } catch {
-      return app.fetch(request, env, ctx);
+    try { update = await request.clone().json(); } catch { return ok(); }
+    const message = update.message;
+    if (!message?.text || message.from?.is_bot) return ok();
+    const match = message.text.trim().match(/^\/([^\s@]+)(?:@([^\s]+))?(?:\s+([\s\S]*))?$/u);
+    if (!match) return ok();
+    if (match[2] && env.BOT_USERNAME && match[2].toLowerCase() !== env.BOT_USERNAME.replace(/^@/, "").toLowerCase()) return ok();
+    const command = match[1].toLowerCase();
+    const args = (match[3] || "").trim();
+    if (["icons", "иконе"].includes(command) && (!args || /^\d+$/.test(args))) {
+      const page = Number(args) || 1;
+      const pages = Math.ceil(icons.length / 30);
+      if (page < 1 || page > pages) return send(message, {method:"sendMessage",text:`Страница мора бити између 1 и ${pages}.`});
+      const text = `☦️ <b>Иконе, страна ${page}/${pages}</b>` + "\n\nКористи <code>/ikona назив</code> или <code>/icons део-назива</code>.\n\n" +
+        icons.slice((page - 1) * 30, page * 30).map(i => `<code>${esc(i.name)}</code>`).join("\n");
+      return send(message, { method: "sendMessage", text: text + (page < pages ? `\n\nСледећа страна: /icons ${page + 1}` : "") });
     }
-
-    const message = update.message || update.edited_message;
-    if (!message?.text || message.from?.is_bot) return app.fetch(request, env, ctx);
-
-    const text = message.text.trim();
-    const lower = text.toLowerCase();
-    const chatId = String(message.chat.id);
-    const targetChatId = String(env.TARGET_CHAT_ID || DEFAULT_TARGET_CHAT_ID);
-    const threadId = message.message_thread_id;
-
-    if (isCommand(lower, ["/modadd", "/модадд"])) {
-      return manageModerator({ env, message, chatId, targetChatId, threadId, action: "add" });
+    if (["icons", "icon", "ikona", "икона", "иконе"].includes(command)) {
+      let icon;
+      if (args) {
+        const query = norm(args);
+        icon = icons.find(i => norm(i.name) === query) || icons.find(i => norm(i.name).includes(query));
+      } else {
+        const key = new Intl.DateTimeFormat("en-CA", {timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+        const day = calendar2026[key];
+        if (day?.icon) icon = {name:day.title,url:rawUrl(day.icon)};
+      }
+      if (!icon) return send(message, {method:"sendMessage",text:args ? "Икона није пронађена. Списак: /icons" : "Икона дана још није додата. Изабери икону: /icons"});
+      return send(message, {method:"sendPhoto",photo:icon.url,caption:esc(icon.name)});
     }
-
-    if (isCommand(lower, ["/modremove", "/модремове"])) {
-      return manageModerator({ env, message, chatId, targetChatId, threadId, action: "remove" });
+    if (["citanja", "читања", "dnevnacitanja", "дневначитања", "dnevna_citanja", "дневна_читања"].includes(command)) {
+      const key = new Intl.DateTimeFormat("en-CA", {timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+      const day = calendar2026[key];
+      return send(message,{method:"sendMessage",text:day ? `📖 <b>Дневна читања</b>\n\nАпостол: ${esc(day.apostle || "Још није уписано")}\nЈеванђеље: ${esc(day.gospel || "Још није уписано")}` : "Читања за данас још нису уписана."});
     }
-
-    if (!isCommand(lower, ["/ban", "/бан"])) return app.fetch(request, env, ctx);
-
-    if (chatId !== targetChatId) {
-      return send(message.chat.id, "⛔ /ban ради само у главној групи као reply на поруку.", threadId);
-    }
-
-    const actorId = String(message.from?.id || "");
-    const allowed = await isAllowedModerator(env, targetChatId, actorId);
-
-    if (!allowed) {
-      return new Response("OK", { status: 200 });
-    }
-
-    const replied = message.reply_to_message;
-    const target = replied?.from;
-
-    if (!replied || !target?.id) {
-      return send(message.chat.id, "⚠️ Reply-уј директно на поруку корисника и напиши <code>/ban разлог</code>.", threadId);
-    }
-
-    if (target.is_bot || String(target.id) === actorId) {
-      return send(message.chat.id, "⛔ Тај налог не може бити банован овом командом.", threadId);
-    }
-
-    const reason = text.replace(/^\/\S+\s*/u, "").trim().slice(0, 500);
-    if (!reason) {
-      return send(message.chat.id, "⚠️ Додај разлог. Пример: <code>/ban спам</code>", threadId);
-    }
-
-    const status = await tg(env, "getChatMember", {
-      chat_id: targetChatId,
-      user_id: Number(target.id)
-    });
-
-    if (!status?.ok) {
-      return send(message.chat.id, "❌ Не могу да проверим корисника пре ban-а.", threadId);
-    }
-
-    const memberStatus = status.result?.status;
-    if (memberStatus === "creator" || memberStatus === "administrator") {
-      return send(message.chat.id, "⛔ Owner/admin не може бити банован овом командом.", threadId);
-    }
-
-    const result = await tg(env, "banChatMember", {
-      chat_id: targetChatId,
-      user_id: Number(target.id),
-      revoke_messages: true
-    });
-
-    if (!result?.ok) {
-      return send(message.chat.id, `❌ Ban није успео: ${esc(result?.description || "непозната грешка")}`, threadId);
-    }
-
-    await notifyOwnerOfBan(env, {
-      targetChatId,
-      moderator: message.from,
-      target,
-      reason
-    });
-
-    return send(message.chat.id, `✅ Корисник је банован.\nРазлог: ${esc(reason)}`, threadId);
+    const allowed = new Set(["start","help","pomoc","помоћ","komande","commands","команде","ping","test","kalendar","kalnedar","calendar","календар","post","fast","пост","sutra","сутра","nedelja","nedejla","nedelaj","недеља","недејла","tropar","тропар","kondak","кондак","prolog","пролог","svpismo","свписмо","sveto_pismo","свето_писмо","chatid","четид","cid","userid","user_id","ид","корисникид","botstat","botstats","usage","стат","статистика","replydebug","debugreply","reply_debug"]);
+    if (!allowed.has(command)) return ok();
+    // Normalize bot suffixes and Latin help alias before forwarding.
+    update.message.text = `/${command === "pomoc" ? "help" : command}${args ? " " + args : ""}`;
+    return app.fetch(new Request(request.url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(update)}),env,ctx);
   }
 };
-
-async function manageModerator({ env, message, chatId, targetChatId, threadId, action }) {
-  if (chatId !== targetChatId) {
-    return send(message.chat.id, "⛔ Ова команда ради само у главној групи.", threadId);
-  }
-
-  const actorId = String(message.from?.id || "");
-  const actorStatus = await tg(env, "getChatMember", {
-    chat_id: targetChatId,
-    user_id: Number(actorId)
-  });
-
-  if (!actorStatus?.ok || actorStatus.result?.status !== "creator") {
-    return send(message.chat.id, "⛔ Само owner групе може да мења ban модераторе.", threadId);
-  }
-
-  const target = message.reply_to_message?.from;
-  if (!target?.id || target.is_bot) {
-    return send(
-      message.chat.id,
-      action === "add"
-        ? "⚠️ Reply-уј на поруку човека коме желиш да даш право и напиши <code>/modadd</code>."
-        : "⚠️ Reply-уј на поруку човека коме желиш да одузмеш право и напиши <code>/modremove</code>.",
-      threadId
-    );
-  }
-
-  if (!env.MOD_STATE) {
-    return send(message.chat.id, "❌ MOD_STATE KV није повезан, не могу да сачувам whitelist.", threadId);
-  }
-
-  const targetId = String(target.id);
-  const key = moderatorKey(targetChatId, targetId);
-
-  try {
-    if (action === "add") {
-      await env.MOD_STATE.put(key, JSON.stringify({
-        userId: targetId,
-        username: target.username || "",
-        addedBy: actorId,
-        addedAt: new Date().toISOString()
-      }));
-      return send(message.chat.id, `✅ ${esc(formatUser(target))} сада може да користи reply + <code>/ban разлог</code>.`, threadId);
-    }
-
-    await env.MOD_STATE.delete(key);
-    return send(message.chat.id, `✅ ${esc(formatUser(target))} више нема право на /ban.`, threadId);
-  } catch (error) {
-    return send(message.chat.id, `❌ Нисам успео да изменим whitelist: ${esc(error?.message || "KV грешка")}`, threadId);
-  }
+function ok() { return new Response("OK"); }
+function send(message, payload) {
+  const body = {...payload,chat_id:message.chat.id,parse_mode:"HTML"};
+  if (message.message_thread_id != null) body.message_thread_id = message.message_thread_id;
+  return new Response(JSON.stringify(body),{headers:{"Content-Type":"application/json"}});
 }
-
-async function notifyOwnerOfBan(env, { targetChatId, moderator, target, reason }) {
-  try {
-    const admins = await tg(env, "getChatAdministrators", {
-      chat_id: targetChatId
-    });
-
-    const owner = admins?.result?.find((member) => member?.status === "creator")?.user;
-    if (!owner?.id) return;
-
-    await tg(env, "sendMessage", {
-      chat_id: Number(owner.id),
-      text:
-        `⛔ <b>Ban у групи</b>\n\n` +
-        `<b>Банован:</b> ${esc(formatUser(target))}\n` +
-        `<b>User ID:</b> <code>${esc(target?.id || "?")}</code>\n` +
-        `<b>Бановао:</b> ${esc(formatUser(moderator))}\n` +
-        `<b>Разлог:</b> ${esc(reason || "није наведен")}`,
-      parse_mode: "HTML",
-      disable_web_page_preview: true
-    });
-  } catch {
-    // Private notification must never make a successful ban fail.
-  }
-}
-
-async function isAllowedModerator(env, chatId, userId) {
-  if (!userId) return false;
-
-  const staticIds = getAllowedUserIds(env);
-  if (staticIds.includes(String(userId))) return true;
-
-  if (!env.MOD_STATE) return false;
-
-  try {
-    const value = await env.MOD_STATE.get(moderatorKey(chatId, userId));
-    return Boolean(value);
-  } catch {
-    return false;
-  }
-}
-
-function moderatorKey(chatId, userId) {
-  return `banmod:${chatId}:${userId}`;
-}
-
-function getAllowedUserIds(env) {
-  const raw = String(env.CONTROL_USER_IDS || env.MODERATOR_USER_IDS || "").trim();
-  return raw ? raw.split(",").map((x) => x.trim()).filter(Boolean) : [];
-}
-
-function isCommand(text, commands) {
-  return commands.some((command) => text === command || text.startsWith(command + " ") || text.startsWith(command + "@"));
-}
-
-async function tg(env, method, body) {
-  if (!env.BOT_TOKEN) return { ok: false, description: "BOT_TOKEN није подешен." };
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    return await response.json();
-  } catch (error) {
-    return { ok: false, description: error?.message || "Telegram API грешка." };
-  }
-}
-
-function send(chatId, text, threadId) {
-  const body = {
-    method: "sendMessage",
-    chat_id: chatId,
-    text,
-    parse_mode: "HTML",
-    disable_web_page_preview: true
-  };
-  if (threadId !== undefined && threadId !== null) body.message_thread_id = threadId;
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { "Content-Type": "application/json" }
-  });
-}
-
-function formatUser(user) {
-  if (!user) return "Непознат";
-  if (user.username) return `@${user.username}`;
-  return `${user.first_name || ""} ${user.last_name || ""}`.trim() || String(user.id || "Непознат");
-}
-
-function esc(value) {
-  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function rawUrl(s) { return s.replace(/^https:\/\/github.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+?)(?:\?raw=true)?$/, "https://raw.githubusercontent.com/$1/$2/$3/$4"); }
+function norm(s) { return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s]+/g,"-"); }

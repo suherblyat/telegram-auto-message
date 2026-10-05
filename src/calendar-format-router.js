@@ -1,5 +1,5 @@
 import commandRouter from "./command-router.js";
-import { calendar2026 } from "./data/calendar-2026.js";
+import { calendar2026 } from "./data/calendar-all.js";
 
 const MANUAL_FASTING_OVERRIDES = {
   "2026-05-27": { fasting: "Пост", fastingType: "уље" },
@@ -69,7 +69,7 @@ export default {
     if (isCommand(text, ["/kalendar", "/kalnedar", "/calendar", "/календар"])) {
       const data = getCalendarDay(todayKey());
       if (!data) return sendMessage(chatId, missingMessage(todayKey()), threadId);
-      if (data.icon) return sendPhoto(chatId, data.icon, formatCalendar(data), threadId);
+      if (data.icon) return sendPhoto(chatId, data.icon.replace(/^https:\/\/github.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+?)(?:\?raw=true)?$/, "https://raw.githubusercontent.com/$1/$2/$3/$4"), formatCalendar(data), threadId);
       return sendMessage(chatId, formatCalendar(data), threadId);
     }
 

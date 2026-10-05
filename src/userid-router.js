@@ -1,4 +1,4 @@
-import app from "./safety-fix-router.js";
+import app from "./calendar-format-router.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -98,8 +98,9 @@ async function botStats({ env, message, chatId, threadId }) {
     `<b>MOD_STATE KV:</b> <code>${env.MOD_STATE ? "повезан" : "није повезан"}</code>`,
     `<b>Познати user ID у овом chatu:</b> <code>${esc(knownUsers.label)}</code>`,
     `<b>Познати username у овом chatu:</b> <code>${esc(knownUsernames.label)}</code>`,
-    `<b>Активне опомене у овом chatu:</b> <code>${esc(warnings.label)}</code>`,
+    `<b>Сачуване старе опомене:</b> <code>${esc(warnings.label)}</code>`,
     "",
+    "✅ Модерација је искључена.",
     "✅ KV више не сме да блокира /календар, јер се не уписује на сваку команду."
   ];
 
