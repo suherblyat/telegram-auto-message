@@ -120,7 +120,11 @@ async def main():
                                 await event.reply('✅ Заказани позив је сада покренут за целу ову групу.')
                             else:
                                 count = getattr(info, 'participants_count', 0)
-                                await event.reply(f'Позив постоји у овој групи. Учесника: {count}. Отвори профил групе и изабери придруживање видео-чату.')
+                                if count == 0 and event.chat_id not in holders:
+                                    await hold_call(event.chat_id, existing)
+                                    await event.reply('✅ Ушао сам у празан позив. Чекам без звука до 10 минута и излазим када неко уђе.')
+                                else:
+                                    await event.reply(f'Позив постоји у овој групи. Учесника: {count}. Отвори профил групе и изабери придруживање видео-чату.')
                             LOG.info('Existing call in %s: id=%s participants=%s scheduled=%s',
                                      event.chat_id, existing.id,
                                      getattr(info, 'participants_count', None),
