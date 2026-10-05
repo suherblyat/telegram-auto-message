@@ -13,7 +13,7 @@ from telethon.sessions import StringSession
 from call_service.empty_policy import EmptyPolicy
 
 ACCOUNT_ID = 8630511026
-GROUP_ID = -1001861714695
+GROUP_REFS = (-1001861714695, "@resursiced")
 LOG = logging.getLogger('group_calls')
 
 async def main():
@@ -29,7 +29,7 @@ async def main():
         session = str(path)
     client = TelegramClient(session, api_id, api_hash, flood_sleep_threshold=0)
     await client.connect()
-    watcher = None
+    watchers = []
     try:
         if not await client.is_user_authorized():
             raise SystemExit('Сесија није пријављена.')
@@ -37,16 +37,23 @@ async def main():
         if me.bot or me.id != ACCOUNT_ID:
             raise SystemExit('Погрешан налог: потребан је Бот На Макс.')
         await client.get_dialogs()
-        group = await client.get_entity(GROUP_ID)
-        if not isinstance(group, types.Channel) or not group.megagroup:
-            raise SystemExit('Потребна је супергрупа.')
-        own = await client.get_permissions(group, me)
-        if not (own.is_creator or (own.is_admin and getattr(group.admin_rights, 'manage_call', False))):
-            raise SystemExit('Налогу је потребна дозвола Manage video chats.')
-        lock = asyncio.Lock()
-        policy = EmptyPolicy()
+        groups = {}
+        locks = {}
+        policies = {}
+        for ref in GROUP_REFS:
+            group = await client.get_entity(ref)
+            if not isinstance(group, types.Channel) or not group.megagroup:
+                raise SystemExit(f'Потребна је супергрупа: {ref}')
+            own = await client.get_permissions(group, me)
+            if not (own.is_creator or (own.is_admin and getattr(group.admin_rights, 'manage_call', False))):
+                raise SystemExit(f'Налогу је потребна дозвола Manage video chats: {ref}')
+            chat_id = -1000000000000 - group.id
+            groups[chat_id] = group
+            locks[chat_id] = asyncio.Lock()
+            policies[chat_id] = EmptyPolicy()
+            LOG.info('Group ready: %s (%s)', ref, chat_id)
 
-        async def active_call():
+        async def active_call(group):
             full = await client(functions.channels.GetFullChannelRequest(group))
             return full.full_chat.call
 
@@ -54,8 +61,11 @@ async def main():
             result = await client(functions.phone.GetGroupCallRequest(call=call, limit=1))
             return result.call
 
-        @client.on(events.NewMessage(chats=GROUP_ID, pattern=r'(?i)^/call(?:@ced_podestnik_bot)?\s*$'))
+        @client.on(events.NewMessage(chats=list(groups), pattern=r'(?i)^/call(?:@ced_podestnik_bot)?\s*$'))
         async def command(event):
+            group = groups[event.chat_id]
+            lock = locks[event.chat_id]
+            policy = policies[event.chat_id]
             sender = await event.get_sender()
             if not isinstance(sender, types.User) or sender.bot:
                 return
@@ -64,7 +74,7 @@ async def main():
                 if not (rights.is_creator or rights.is_admin):
                     return
                 async with lock:
-                    if await active_call():
+                    if await active_call(group):
                         await event.reply('Позив је већ активан.')
                         return
                     await client(functions.phone.CreateGroupCallRequest(peer=group, random_id=secrets.randbits(31)))
@@ -75,12 +85,12 @@ async def main():
             except Exception as exc:
                 LOG.warning('Command failed: %s', type(exc).__name__)
 
-        async def monitor():
+        async def monitor(group, lock, policy):
             while True:
                 delay = 10
                 try:
                     async with lock:
-                        active = await active_call()
+                        active = await active_call(group)
                         if not active:
                             policy.reset()
                         else:
@@ -89,12 +99,12 @@ async def main():
                             if isinstance(info, types.GroupCallDiscarded) or getattr(info, 'schedule_date', None):
                                 policy.reset()
                             elif policy.observe(active.id, getattr(info, 'participants_count', None), time.monotonic()):
-                                current = await active_call()
+                                current = await active_call(group)
                                 if current and current.id == active.id:
                                     latest = await call_info(current)
                                     if getattr(latest, 'participants_count', None) == 0 and not getattr(latest, 'schedule_date', None):
                                         await client(functions.phone.DiscardGroupCallRequest(call=current))
-                                        LOG.info('Empty call ended automatically')
+                                        LOG.info('Empty call ended automatically: %s', group.id)
                                         policy.reset()
                                     else:
                                         policy.observe(active.id, getattr(latest, 'participants_count', None), time.monotonic())
@@ -109,12 +119,14 @@ async def main():
                     LOG.warning('Call check failed: %s', type(exc).__name__)
                 await asyncio.sleep(delay)
 
-        watcher = asyncio.create_task(monitor())
+        watchers = [asyncio.create_task(monitor(group, locks[chat_id], policies[chat_id]))
+                    for chat_id, group in groups.items()]
         LOG.info('Ready: /call only; automatic empty-call shutdown; no media connection')
         await client.run_until_disconnected()
     finally:
-        if watcher:
+        for watcher in watchers:
             watcher.cancel()
+        for watcher in watchers:
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
         await client.disconnect()
