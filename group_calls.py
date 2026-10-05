@@ -85,9 +85,22 @@ async def main():
                          event.chat_id, anonymous_admin,
                          getattr(event.message.reply_to, 'reply_to_top_id', None))
                 async with lock:
-                    if await active_call(group):
-                        await event.reply('Позив је већ активан.')
-                        return
+                    existing = await active_call(group)
+                    if existing:
+                        info = await call_info(existing)
+                        if not isinstance(info, types.GroupCallDiscarded):
+                            if getattr(info, 'schedule_date', None):
+                                await client(functions.phone.StartScheduledGroupCallRequest(call=existing))
+                                policy.reset()
+                                await event.reply('✅ Заказани позив је сада покренут за целу ову групу.')
+                            else:
+                                count = getattr(info, 'participants_count', 0)
+                                await event.reply(f'Позив постоји у овој групи. Учесника: {count}. Отвори профил групе и изабери придруживање видео-чату.')
+                            LOG.info('Existing call in %s: id=%s participants=%s scheduled=%s',
+                                     event.chat_id, existing.id,
+                                     getattr(info, 'participants_count', None),
+                                     getattr(info, 'schedule_date', None))
+                            return
                     await client(functions.phone.CreateGroupCallRequest(peer=group, random_id=secrets.randbits(31)))
                     policy.reset()
                     await event.reply('✅ Позив је покренут. Аутоматски се гаси када остане празан.')
