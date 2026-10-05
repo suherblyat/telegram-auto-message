@@ -1,0 +1,7 @@
+
+# Private Telegram credentials and runtime files
+*.session
+*.session-*
+.env
+.env.*
+__pycache__/

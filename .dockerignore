@@ -1,0 +1,7 @@
+.git
+node_modules
+**/*.session
+**/*.session-*
+.env
+.env.*
+**/__pycache__
