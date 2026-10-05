@@ -10,6 +10,9 @@ from pathlib import Path
 
 from telethon import TelegramClient, events, errors, functions, types
 from telethon.sessions import StringSession
+from pytgcalls import PyTgCalls
+from pytgcalls.types import GroupCallConfig
+from pytgcalls.exceptions import NotInCallError, NoActiveGroupCall
 from call_service.empty_policy import EmptyPolicy
 
 ACCOUNT_ID = 8630511026
@@ -30,6 +33,8 @@ async def main():
     client = TelegramClient(session, api_id, api_hash, flood_sleep_threshold=0)
     await client.connect()
     watchers = []
+    holders = {}
+    calls = None
     try:
         if not await client.is_user_authorized():
             raise SystemExit('Сесија није пријављена.')
@@ -53,6 +58,9 @@ async def main():
             policies[chat_id] = EmptyPolicy()
             LOG.info('Group ready: %s (%s)', ref, chat_id)
 
+        calls = PyTgCalls(client)
+        await calls.start()
+
         async def active_call(group):
             full = await client(functions.channels.GetFullChannelRequest(group))
             return full.full_chat.call
@@ -60,6 +68,22 @@ async def main():
         async def call_info(call):
             result = await client(functions.phone.GetGroupCallRequest(call=call, limit=1))
             return result.call
+
+        async def hold_call(chat_id, call):
+            # No stream means no microphone, camera, speaker or recording source.
+            await asyncio.wait_for(calls.play(chat_id, None,
+                GroupCallConfig(join_as=await client.get_input_entity(me), auto_start=False)), 45)
+            holders[chat_id] = (call.id, time.monotonic() + 600)
+            await calls.mute(chat_id)
+            LOG.info('Silent holder joined: group=%s call=%s', chat_id, call.id)
+
+        async def release_holder(chat_id):
+            try:
+                await calls.leave_call(chat_id, close=False)
+            except (NotInCallError, NoActiveGroupCall):
+                pass
+            holders.pop(chat_id, None)
+            LOG.info('Silent holder left: group=%s', chat_id)
 
         @client.on(events.NewMessage(chats=list(groups), pattern=r'(?i)^/call(?:@ced_podestnik_bot)?\s*$'))
         async def command(event):
@@ -92,6 +116,7 @@ async def main():
                             if getattr(info, 'schedule_date', None):
                                 await client(functions.phone.StartScheduledGroupCallRequest(call=existing))
                                 policy.reset()
+                                await hold_call(event.chat_id, existing)
                                 await event.reply('✅ Заказани позив је сада покренут за целу ову групу.')
                             else:
                                 count = getattr(info, 'participants_count', 0)
@@ -103,22 +128,46 @@ async def main():
                             return
                     await client(functions.phone.CreateGroupCallRequest(peer=group, random_id=secrets.randbits(31)))
                     policy.reset()
-                    await event.reply('✅ Позив је покренут. Аутоматски се гаси када остане празан.')
+                    created = await active_call(group)
+                    if created:
+                        await hold_call(event.chat_id, created)
+                    await event.reply('✅ Позив је покренут. Чекам без звука до 10 минута и излазим када неко уђе.')
             except errors.RPCError as exc:
                 await event.reply('Telegram грешка: ' + type(exc).__name__)
             except Exception as exc:
                 LOG.warning('Command failed: %s', type(exc).__name__)
+                await event.reply('Позив је затражен, али повезивање није потврђено: ' + type(exc).__name__)
 
         async def monitor(group, lock, policy):
+            chat_id = -1000000000000 - group.id
             while True:
-                delay = 10
+                delay = 5
                 try:
                     async with lock:
                         active = await active_call(group)
                         if not active:
+                            if chat_id in holders:
+                                await release_holder(chat_id)
                             policy.reset()
                         else:
                             info = await call_info(active)
+                            holder = holders.get(chat_id)
+                            if holder:
+                                count = getattr(info, 'participants_count', None)
+                                if holder[0] != active.id or isinstance(info, types.GroupCallDiscarded):
+                                    await release_holder(chat_id)
+                                    policy.reset()
+                                elif (count is not None and count > 1) or time.monotonic() >= holder[1]:
+                                    await release_holder(chat_id)
+                                    # Holder presence must not count as a real participant.
+                                    policy.reset()
+                                    policy.call_id = active.id
+                                    policy.first_seen = time.monotonic()
+                                    policy.had_participants = True
+                                    info = await call_info(active)
+                                else:
+                                    await asyncio.sleep(delay)
+                                    continue
                             # Never terminate scheduled calls or rely on partial participant pages.
                             if isinstance(info, types.GroupCallDiscarded) or getattr(info, 'schedule_date', None):
                                 policy.reset()
@@ -145,7 +194,7 @@ async def main():
 
         watchers = [asyncio.create_task(monitor(group, locks[chat_id], policies[chat_id]))
                     for chat_id, group in groups.items()]
-        LOG.info('Ready: /call only; automatic empty-call shutdown; no media connection')
+        LOG.info('Ready: /call only; silent holder up to 600s; automatic empty-call shutdown')
         await client.run_until_disconnected()
     finally:
         for watcher in watchers:
@@ -153,6 +202,10 @@ async def main():
         for watcher in watchers:
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
+        if calls:
+            for chat_id in list(holders):
+                with contextlib.suppress(Exception):
+                    await calls.leave_call(chat_id, close=False)
         await client.disconnect()
 
 if __name__ == '__main__':
