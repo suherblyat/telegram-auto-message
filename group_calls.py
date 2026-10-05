@@ -66,13 +66,24 @@ async def main():
             group = groups[event.chat_id]
             lock = locks[event.chat_id]
             policy = policies[event.chat_id]
-            sender = await event.get_sender()
-            if not isinstance(sender, types.User) or sender.bot:
-                return
             try:
-                rights = await client.get_permissions(group, sender)
-                if not (rights.is_creator or rights.is_admin):
-                    return
+                sender = await event.get_sender()
+                # Telegram represents anonymous admins as the group itself.
+                anonymous_admin = (isinstance(sender, types.Channel)
+                                   and sender.id == group.id
+                                   and isinstance(event.message.from_id, types.PeerChannel)
+                                   and event.message.from_id.channel_id == group.id)
+                if not anonymous_admin:
+                    if not isinstance(sender, types.User) or sender.bot:
+                        LOG.info('Command ignored: unsupported sender in %s', event.chat_id)
+                        return
+                    rights = await client.get_permissions(group, sender)
+                    if not (rights.is_creator or rights.is_admin):
+                        LOG.info('Command ignored: non-admin in %s', event.chat_id)
+                        return
+                LOG.info('Call command accepted in %s; anonymous=%s; topic=%s',
+                         event.chat_id, anonymous_admin,
+                         getattr(event.message.reply_to, 'reply_to_top_id', None))
                 async with lock:
                     if await active_call(group):
                         await event.reply('Позив је већ активан.')
