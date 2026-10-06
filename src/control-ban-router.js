@@ -187,13 +187,45 @@ async function handleModeration({ message, env, command, args }) {
     }
 
     const reason = args || "без наведеног разлога";
+    const notified = await notifyOwnerOfBan(env, { message, target, reason });
     return send(message, {
       method: "sendMessage",
-      text: `✅ <b>Корисник је банован.</b>\nКорисник: ${formatUser(target)}\nUser ID: <code>${esc(targetId)}</code>\nРазлог: ${esc(reason)}`
+      text: `✅ <b>Корисник је банован.</b>\nКорисник: ${formatUser(target)}\nUser ID: <code>${esc(targetId)}</code>\nРазлог: ${esc(reason)}` +
+        (notified ? "" : "\n⚠️ Приватно обавештење власнику није достављено.")
     });
   }
 
   return ok();
+}
+
+
+async function notifyOwnerOfBan(env, { message, target, reason }) {
+  // Notify the configured owner directly; never send private reports to all admins.
+  const ownerId = String(env.OWNER_USER_ID || "").trim();
+  if (!/^\d+$/.test(ownerId)) return false;
+
+  const timestamp = new Intl.DateTimeFormat("sr-RS", {
+    timeZone: "Europe/Belgrade",
+    dateStyle: "short",
+    timeStyle: "medium"
+  }).format(new Date());
+
+  const result = await tg(env, "sendMessage", {
+    chat_id: Number(ownerId),
+    parse_mode: "HTML",
+    text:
+      `🛡️ <b>Обавештење о бану</b>\n\n` +
+      `<b>Група:</b> ${esc(message.chat.title || String(message.chat.id))}\n` +
+      `<b>ID групе:</b> <code>${esc(message.chat.id)}</code>\n` +
+      `<b>Банован:</b> ${formatUser(target)}\n` +
+      `<b>ID корисника:</b> <code>${esc(target.id)}</code>\n` +
+      `<b>Бановао:</b> ${formatUser(message.from)}\n` +
+      `<b>ID модератора:</b> <code>${esc(message.from.id)}</code>\n` +
+      `<b>Разлог:</b> ${esc(String(reason).slice(0, 1000))}\n` +
+      `<b>Време (Београд):</b> ${esc(timestamp)}`
+  });
+  // A blocked bot or unopened private chat must not undo a successful ban.
+  return result?.ok === true;
 }
 
 function ownerIds(env) {
