@@ -2,6 +2,9 @@ name = "telegram-auto-message2"
 main = "src/control-ban-router.js"
 compatibility_date = "2025-01-01"
 
+[vars]
+OWNER_USER_ID = "2073293508"
+
 [[kv_namespaces]]
 binding = "MOD_STATE"
 id = "ca99f7dd3cb94c608f321315d9022c0d"
