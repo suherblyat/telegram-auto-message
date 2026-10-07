@@ -3,7 +3,7 @@ main = "src/control-ban-router.js"
 compatibility_date = "2025-01-01"
 
 [vars]
-OWNER_USER_ID = "2073293508"
+OWNER_USER_ID = "2073293508"\nMOD_CHAT_ID = "-1001861714695"
 
 [[kv_namespaces]]
 binding = "MOD_STATE"
