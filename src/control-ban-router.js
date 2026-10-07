@@ -60,9 +60,14 @@ async function handleModeration({ message, env, command, args }) {
 
   const actorId = String(message.from?.id || "");
   const owner = isOwner(env, actorId);
+  const moderationChatId = getModerationChatId(env, message);
 
   if (["modadd", "modremove", "modlist"].includes(command) && !owner) {
     return send(message, { method: "sendMessage", text: "⛔ Само owner може да управља модераторима." });
+  }
+
+  if (["modadd", "modremove", "modlist"].includes(command) && !moderationChatId) {
+    return send(message, { method: "sendMessage", text: "⚠️ MOD_CHAT_ID није подешен за приватне moderation команде." });
   }
 
   if (command === "modadd") {
@@ -79,7 +84,7 @@ async function handleModeration({ message, env, command, args }) {
       return send(message, { method: "sendMessage", text: "⛔ Бот не може бити додат као мод." });
     }
 
-    await env.MOD_STATE.put(modKey(message.chat.id, targetId), JSON.stringify({
+    await env.MOD_STATE.put(modKey(moderationChatId, targetId), JSON.stringify({
       userId: targetId,
       username: target.username || "",
       firstName: target.first_name || "",
@@ -100,7 +105,7 @@ async function handleModeration({ message, env, command, args }) {
       return send(message, { method: "sendMessage", text: "⚠️ Користи reply или User ID. Пример: <code>/modremove 123456789</code>" });
     }
 
-    await env.MOD_STATE.delete(modKey(message.chat.id, targetId));
+    await env.MOD_STATE.delete(modKey(moderationChatId, targetId));
     return send(message, {
       method: "sendMessage",
       text: `✅ Мод права уклоњена за User ID: <code>${esc(targetId)}</code>`
@@ -108,7 +113,7 @@ async function handleModeration({ message, env, command, args }) {
   }
 
   if (command === "modlist") {
-    const mods = await listMods(env, message.chat.id);
+    const mods = await listMods(env, moderationChatId);
     if (!mods.length) {
       return send(message, { method: "sendMessage", text: "ℹ️ Нема додатих модератора." });
     }
@@ -242,6 +247,12 @@ function isOwner(env, userId) {
 
 function modKey(chatId, userId) {
   return `mod:${chatId}:${userId}`;
+}
+
+function getModerationChatId(env, message) {
+  if (message.chat?.type !== "private") return String(message.chat?.id || "");
+  const configured = String(env.MOD_CHAT_ID || env.TARGET_CHAT_ID || "").trim();
+  return /^-?\d+$/.test(configured) ? configured : "";
 }
 
 async function isModerator(env, chatId, userId) {
