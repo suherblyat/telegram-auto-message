@@ -16,7 +16,7 @@ export default {
     const command = match[1].toLowerCase();
     const args = (match[3] || "").trim();
 
-    if (["modadd","modremove","modlist","ban"].includes(command)) {
+    if (["modadd","modremove","modlist","ban","unban"].includes(command)) {
       return handleModeration({ message, env, command, args });
     }
     if (["icons", "иконе"].includes(command) && (!args || /^\d+$/.test(args))) {
@@ -200,6 +200,59 @@ async function handleModeration({ message, env, command, args }) {
     });
   }
 
+  if (command === "unban") {
+    const privateCommand = message.chat?.type === "private";
+    const targetChatId = getModerationChatId(env, message);
+    const actorIsMod = !privateCommand && await isModerator(env, targetChatId, actorId);
+    if (!owner && !actorIsMod) {
+      return send(message, { method: "sendMessage", text: "⛔ Немаш дозволу за <code>/unban</code>." });
+    }
+    if (!targetChatId) {
+      return send(message, { method: "sendMessage", text: "⚠️ MOD_CHAT_ID није подешен. У приватном разговору /unban може користити само власник." });
+    }
+
+    // A banned user's messages may already have been removed by /ban, so an ID must also work.
+    const targetId = getTargetId(message, args);
+    const userId = Number(targetId);
+    if (!targetId || !Number.isSafeInteger(userId) || userId <= 0) {
+      return send(message, { method: "sendMessage", text: "⚠️ Одговори на поруку корисника или наведи User ID. Пример: <code>/unban 123456789</code>" });
+    }
+
+    const member = await tg(env, "getChatMember", {
+      chat_id: targetChatId,
+      user_id: userId
+    });
+    if (!member?.ok) {
+      return send(message, {
+        method: "sendMessage",
+        text: `⚠️ Провера бана није успела: ${esc(member?.description || "непозната Telegram API грешка")}`
+      });
+    }
+    if (member.result?.status !== "kicked") {
+      return send(message, { method: "sendMessage", text: `ℹ️ Корисник <code>${esc(targetId)}</code> није банован у овој групи.` });
+    }
+
+    const unbanned = await tg(env, "unbanChatMember", {
+      chat_id: targetChatId,
+      user_id: userId,
+      // Without this flag, Telegram may REMOVE a user who is already in the group.
+      only_if_banned: true
+    });
+    if (!unbanned?.ok) {
+      return send(message, {
+        method: "sendMessage",
+        text: `⚠️ Скидање бана није успело: ${esc(unbanned?.description || "непозната Telegram API грешка")}`
+      });
+    }
+
+    const notified = await notifyOwnerOfUnban(env, { message, targetId, targetChatId });
+    return send(message, {
+      method: "sendMessage",
+      text: `✅ <b>Бан је скинут.</b>\nUser ID: <code>${esc(targetId)}</code>\nКорисник сада може поново да уђе у групу.` +
+        (notified ? "" : "\n⚠️ Приватно обавештење власнику није достављено.")
+    });
+  }
+
   return ok();
 }
 
@@ -230,6 +283,20 @@ async function notifyOwnerOfBan(env, { message, target, reason }) {
       `<b>Време (Београд):</b> ${esc(timestamp)}`
   });
   // A blocked bot or unopened private chat must not undo a successful ban.
+  return result?.ok === true;
+}
+
+async function notifyOwnerOfUnban(env, { message, targetId, targetChatId }) {
+  const ownerId = String(env.OWNER_USER_ID || "").trim();
+  if (!/^\\d+$/.test(ownerId)) return false;
+  const result = await tg(env, "sendMessage", {
+    chat_id: Number(ownerId),
+    parse_mode: "HTML",
+    text: `🛡️ <b>Обавештење о скидању бана</b>\n` +
+      `<b>Група:</b> <code>${esc(targetChatId)}</code>\n` +
+      `<b>Корисник:</b> <code>${esc(targetId)}</code>\n` +
+      `<b>Вратио:</b> ${formatUser(message.from)} (<code>${esc(message.from.id)}</code>)`
+  });
   return result?.ok === true;
 }
 
