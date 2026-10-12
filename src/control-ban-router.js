@@ -288,7 +288,7 @@ async function notifyOwnerOfBan(env, { message, target, reason }) {
 
 async function notifyOwnerOfUnban(env, { message, targetId, targetChatId }) {
   const ownerId = String(env.OWNER_USER_ID || "").trim();
-  if (!/^\\d+$/.test(ownerId)) return false;
+  if (!/^\d+$/.test(ownerId)) return false;
   const result = await tg(env, "sendMessage", {
     chat_id: Number(ownerId),
     parse_mode: "HTML",
