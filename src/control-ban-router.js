@@ -1,4 +1,6 @@
 import app from "./userid-router.js";
+import { handleTimer } from "./owner-timer.js";
+export { OwnerTimer } from "./owner-timer.js";
 import { icons } from "./data/icons.js";
 import { calendar2026 } from "./data/calendar-all.js";
 
@@ -10,6 +12,8 @@ export default {
     try { update = await request.clone().json(); } catch { return ok(); }
     const message = update.message;
     if (!message?.text || message.from?.is_bot) return ok();
+    const timerResponse = await handleTimer(message, env);
+    if (timerResponse) return timerResponse;
     const match = message.text.trim().match(/^\/([^\s@]+)(?:@([^\s]+))?(?:\s+([\s\S]*))?$/u);
     if (!match) return ok();
     if (match[2] && env.BOT_USERNAME && match[2].toLowerCase() !== env.BOT_USERNAME.replace(/^@/, "").toLowerCase()) return ok();
@@ -387,3 +391,4 @@ function send(message, payload) {
 function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function rawUrl(s) { return s.replace(/^https:\/\/github.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+?)(?:\?raw=true)?$/, "https://raw.githubusercontent.com/$1/$2/$3/$4"); }
 function norm(s) { return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s]+/g,"-"); }
+

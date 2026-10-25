@@ -24,8 +24,12 @@ jobs:
       - name: Test Telegram moderation
         run: node tests/moderation-unban.mjs
 
+      - name: Test owner timers
+        run: node tests/owner-timer.mjs
+
       - name: Deploy Cloudflare Worker
         run: npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+

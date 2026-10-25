@@ -5,6 +5,7 @@ compatibility_date = "2025-01-01"
 [vars]
 OWNER_USER_ID = "2073293508"
 MOD_CHAT_ID = "-1001861714695"
+BOT_USERNAME = "ced_podestnik_bot"
 
 [[kv_namespaces]]
 binding = "MOD_STATE"
@@ -12,3 +13,12 @@ id = "ca99f7dd3cb94c608f321315d9022c0d"
 
 [observability]
 enabled = true
+
+[[durable_objects.bindings]]
+name = "OWNER_TIMERS"
+class_name = "OwnerTimer"
+
+[[migrations]]
+tag = "owner-timers-v1"
+new_sqlite_classes = ["OwnerTimer"]
+
