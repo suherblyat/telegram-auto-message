@@ -5,6 +5,7 @@ compatibility_date = "2025-01-01"
 [vars]
 OWNER_USER_ID = "2073293508"
 MOD_CHAT_ID = "-1001861714695"
+SUMMARY_CHAT_IDS = "-1001861714695,-1003697946094"
 BOT_USERNAME = "ced_podestnik_bot"
 
 [[kv_namespaces]]
