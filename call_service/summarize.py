@@ -74,8 +74,16 @@ class Summarizer:
             # The signed timestamp must be fresh on every retry.
             stamp = str(int(time.time()))
             signature = base64.b64encode(self.key.sign(stamp.encode()+b'\n'+body)).decode()
-            req = Request(self.url, data=body, headers={'Content-Type':'application/json',
-                          'X-Summary-Time':stamp, 'X-Summary-Signature':signature})
+            # Cloudflare's Browser Integrity Check can block Python urllib's
+            # default User-Agent with HTTP 403 (Error 1010) on workers.dev.
+            # Identify this backend client honestly instead of using a browser UA.
+            req = Request(self.url, data=body, headers={
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'User-Agent': 'CedTelegramSummarizer/1.0',
+                'X-Summary-Time': stamp,
+                'X-Summary-Signature': signature,
+            })
             try:
                 with urlopen(req, timeout=100) as response:
                     result = json.load(response)
@@ -83,8 +91,17 @@ class Summarizer:
             except HTTPError as exc:
                 # Log only metadata: never log Telegram message contents,
                 # signatures, tokens, endpoint URLs, or upstream response bodies.
-                LOG.warning('Summary upstream HTTP %s: mode=%s bytes=%s attempt=%s/3',
-                            exc.code, mode, len(body), attempt)
+                # The upstream response to an unsuccessful request may carry
+                # Cloudflare error markers. Classify it without logging its body.
+                diagnostic = exc.read(4096).decode('utf-8', errors='ignore').lower()
+                kind = ('cloudflare-1010' if 'error 1010' in diagnostic
+                        else 'cloudflare-1020' if 'error 1020' in diagnostic
+                        else 'cloudflare-access' if 'cloudflare access' in diagnostic
+                        else 'cloudflare-edge' if 'cloudflare' in diagnostic
+                        else 'other')
+                ray = exc.headers.get('cf-ray', 'none') if exc.headers else 'none'
+                LOG.warning('Summary upstream HTTP %s: mode=%s bytes=%s attempt=%s/3 kind=%s ray=%s',
+                            exc.code, mode, len(body), attempt, kind, ray)
                 if exc.code not in (408, 429, 500, 502, 503, 504) or attempt == 3:
                     raise
                 time.sleep(attempt * 2)
