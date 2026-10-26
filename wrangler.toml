@@ -22,3 +22,15 @@ class_name = "OwnerTimer"
 tag = "owner-timers-v1"
 new_sqlite_classes = ["OwnerTimer"]
 
+
+
+[ai]
+binding = "AI"
+
+[[durable_objects.bindings]]
+name = "CHAT_SUMMARIES"
+class_name = "ChatSummary"
+
+[[migrations]]
+tag = "chat-summaries-v1"
+new_sqlite_classes = ["ChatSummary"]

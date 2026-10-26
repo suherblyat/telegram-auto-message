@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node tests/commands-only.mjs"
+    "test": "node tests/commands-only.mjs && node tests/moderation-unban.mjs && node tests/owner-timer.mjs && node tests/summarize.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
   },
   "type": "module"
 }
+

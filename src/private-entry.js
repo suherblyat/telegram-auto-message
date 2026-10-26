@@ -258,6 +258,10 @@ function formatProlog(data) {
 
 function formatHelp() {
   return "☦️ <b>Команде бота</b>\n\n" +
+    "<code>/sumiraj</code> или /сумирај  сажетак последњих 100 порука\n" +
+    "<code>/sumiraj 50</code>  последњих 50 порука\n" +
+    "<code>/sumiraj danas</code>  данашњи разговор (Београд)\n" +
+    "Одговори на поруку са /sumiraj за сажетак одатле.\n\n" +
     "<code>/kalendar</code>  календар за данас\n" +
     "<code>/post</code>  пост за данас\n" +
     "<code>/tropar</code>  тропар и кондак\n" +
@@ -331,3 +335,4 @@ function normalizeText(value) {
 function containsAny(text, phrases) { return phrases.some((phrase) => text.includes(phrase)); }
 function formatUser(user) { if (!user) return "Непознат"; if (user.username) return `@${user.username}`; return `${user.first_name || ""} ${user.last_name || ""}`.trim() || String(user.id || "Непознат"); }
 function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+

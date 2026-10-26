@@ -8,7 +8,7 @@ async function run(text, extra = {}) {
  const message = {text,from:{id:11},chat:{id:-100},message_id:1,message_thread_id:7,...extra};
  return bot.fetch(new Request('https://worker.test/',{method:'POST',body:JSON.stringify({message})}),env,{});
 }
-for (const text of ['јебем бога','псовка','/ban спам','/upozori','/prijavi','/modadd','/unknown']) {
+for (const text of ['јебем бога','псовка','/upozori','/prijavi','/unknown']) {
  assert.equal(await (await run(text)).text(),'OK');
 }
 assert.equal(await (await run(undefined,{photo:[{}]})).text(),'OK');
@@ -26,4 +26,5 @@ const icon = await (await run('/ikona simon-zilot')).json();assert.equal(icon.me
 assert.equal(calls,0);
 assert.ok(calendar2026['2026-10-05'].title.includes('Фока'));
 assert.equal(Object.keys(calendar2026).filter(k=>k.startsWith('2026-10')).length,31);
-console.log('PASS: moderation inert; commands, suffixes, forum topics, icon pages and October calendar. No outbound or moderation KV calls.');
+console.log('PASS: automatic moderation inert; commands, suffixes, forum topics, icon pages and October calendar. No outbound or moderation KV calls.');
+
