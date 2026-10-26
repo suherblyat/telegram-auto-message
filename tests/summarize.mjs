@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {parseSummary,selectMessages,dayKey,ChatSummary} from '../src/summarize.js';
+import {parseSummary,selectMessages,dayKey,ChatSummary,summaryRecord,coverageText} from '../src/summarize.js';
 import bot from '../src/control-ban-router.js';
 const msg = (text, extra={}) => ({text,message_id:1000,date:Math.floor(Date.now()/1000),chat:{id:-100,type:'supergroup'},from:{id:5,first_name:'Петар'},message_thread_id:7,...extra});
 for(const text of ['/sumiraj','/сумирај','/summarize','/sumiraj@ced_podestnik_bot','Цед, сумирај последњих 100 порука','@ced_podestnik_bot sumiraj 100']) assert.deepEqual(parseSummary(msg(text)),{mode:'count',count:100});
@@ -60,3 +60,27 @@ await run(msg('/help',{message_id:1,edit_date:Math.floor(now/1000)+2}),true);
 assert.equal((await object.state.storage.get('history')).length,0);
 await object.state.storage.put('history',[record(1,now-8*86400000)]);await object.alarm();assert.equal((await object.state.storage.get('history')).length,0);
 console.log('PASS: summary aliases, Serbian requests, reply/count/day, thread isolation, privacy scope, edits, duplicates, concurrent quotas, failures and expiry.');
+
+// Regression: quoted speech, denial, full names, and unavailable audio must reach the model distinctly.
+const original=msg('Ћутиш и затвараш очи',{message_id:20,from:{id:30,first_name:'Гријешни',last_name:'Мимоје'}});
+const denial=msg('То је твоја пројекција, није истина',{message_id:21,from:{id:31,first_name:'Марко'},reply_to_message:original});
+const saved=summaryRecord(denial);
+assert.equal(saved.name,'Марко');assert.equal(saved.replyTo.name,'Гријешни Мимоје');assert.equal(saved.replyTo.id,20);
+assert.equal(summaryRecord({...denial,reply_to_message:{...original,message_thread_id:999}}).replyTo,null);
+assert.equal(summaryRecord(msg('а'.repeat(3500))).text.length,3500);
+for(const phrase of ['@ced_podestnik_bot сумирај задње поруке од данас','Цед, сумирај последње поруке од данас']) assert.deepEqual(parseSummary(msg(phrase)),{mode:'today'});
+assert.deepEqual(parseSummary(msg('/sumiraj zadnjih 20')),{mode:'count',count:20});
+await run(original);await run(denial);
+await run(msg(undefined,{message_id:22,voice:{file_id:'never-download'},reply_to_message:denial}));
+const withMedia=await(await run(msg('/sumiraj danas',{message_id:2000}))).json();
+assert.match(withMedia.text,/Медијске поруке: 1/);assert.match(withMedia.text,/не цео разговор/);assert.match(withMedia.text,/Није гарантовано/);
+const sent=JSON.parse(prompt.messages[1].content);
+assert.equal(sent.find(r=>r.id===21).replyTo.name,'Гријешни Мимоје');
+assert.equal(sent.find(r=>r.id===22).media,'voice');assert.equal(sent.find(r=>r.id===22).text,'');
+assert.ok(!JSON.stringify(sent).includes('never-download'));
+await run(msg(undefined,{message_id:23,message_thread_id:10,voice:{file_id:'no-content'}}));
+const beforeAI=aiCalls;const mediaOnly=await(await run(msg('/sumiraj',{message_id:2001,message_thread_id:10}))).json();
+assert.match(mediaOnly.text,/само медијске/);assert.equal(aiCalls,beforeAI);
+assert.match(coverageText({rows:[record(5)],clipped:false},{mode:'reply',from:1}),/Почетна порука није/);
+assert.match(coverageText({rows:[record(5)],clipped:true},{mode:'count',count:100}),/скраћен/);
+console.log('PASS: reply attribution, media gaps, natural today request and explicit partial coverage. AI prose quality still requires a live comparison.');
