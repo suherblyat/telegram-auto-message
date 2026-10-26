@@ -1,15 +1,19 @@
+import { handleSummary } from "./summarize.js";
+export { ChatSummary } from "./summarize.js";
 import app from "./userid-router.js";
 import { handleTimer } from "./owner-timer.js";
 export { OwnerTimer } from "./owner-timer.js";
 import { icons } from "./data/icons.js";
 import { calendar2026 } from "./data/calendar-all.js";
 
-// Commands only. Ordinary messages, edits and media are ignored. Selected moderation commands are handled here.
+// Ordinary text is recorded for summaries. Automatic moderation remains disabled.
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") return new Response("commands-only: moderation disabled");
     let update;
     try { update = await request.clone().json(); } catch { return ok(); }
+    const summaryResponse = await handleSummary(update, env);
+    if (summaryResponse) return summaryResponse;
     const message = update.message;
     if (!message?.text || message.from?.is_bot) return ok();
     const timerResponse = await handleTimer(message, env);
@@ -391,4 +395,5 @@ function send(message, payload) {
 function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function rawUrl(s) { return s.replace(/^https:\/\/github.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+?)(?:\?raw=true)?$/, "https://raw.githubusercontent.com/$1/$2/$3/$4"); }
 function norm(s) { return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s]+/g,"-"); }
+
 
