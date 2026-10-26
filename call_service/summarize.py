@@ -9,6 +9,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -69,13 +70,24 @@ class Summarizer:
 
     def infer_sync(self, mode, text):
         body = json.dumps(dict(mode=mode, text=text), ensure_ascii=False).encode()
-        stamp = str(int(time.time()))
-        signature = base64.b64encode(self.key.sign(stamp.encode()+b'\n'+body)).decode()
-        req = Request(self.url, data=body, headers={'Content-Type':'application/json',
-                      'X-Summary-Time':stamp, 'X-Summary-Signature':signature})
-        with urlopen(req, timeout=100) as response:
-            result = json.load(response)
-        return result['text']
+        for attempt in range(1, 4):
+            # The signed timestamp must be fresh on every retry.
+            stamp = str(int(time.time()))
+            signature = base64.b64encode(self.key.sign(stamp.encode()+b'\n'+body)).decode()
+            req = Request(self.url, data=body, headers={'Content-Type':'application/json',
+                          'X-Summary-Time':stamp, 'X-Summary-Signature':signature})
+            try:
+                with urlopen(req, timeout=100) as response:
+                    result = json.load(response)
+                return result['text']
+            except HTTPError as exc:
+                # Log only metadata: never log Telegram message contents,
+                # signatures, tokens, endpoint URLs, or upstream response bodies.
+                LOG.warning('Summary upstream HTTP %s: mode=%s bytes=%s attempt=%s/3',
+                            exc.code, mode, len(body), attempt)
+                if exc.code not in (408, 429, 500, 502, 503, 504) or attempt == 3:
+                    raise
+                time.sleep(attempt * 2)
 
     async def infer(self, mode, text):
         return await asyncio.to_thread(self.infer_sync, mode, text)
@@ -185,6 +197,17 @@ class Summarizer:
             LOG.warning('Summary failed: %s',type(exc).__name__)
             if isinstance(exc, errors.FloodWaitError):
                 error = f'Telegram тражи паузу од {exc.seconds} секунди. Сажетак није завршен; покушај након паузе.'
+            elif isinstance(exc, HTTPError):
+                if exc.code in (401, 403):
+                    error = f'AI сервис одбија приступ (HTTP {exc.code}). Потребна је провера Railway–Cloudflare подешавања.'
+                elif exc.code == 404:
+                    error = 'AI адреса није пронађена (HTTP 404). Потребна је провера SUMMARY_ENDPOINT.'
+                elif exc.code == 429:
+                    error = 'AI сервис је достигао лимит или је преоптерећен (HTTP 429). Покушај касније.'
+                elif exc.code in (408, 500, 502, 503, 504):
+                    error = f'AI сервис тренутно не успева да обради захтев (HTTP {exc.code}). Покушај касније.'
+                else:
+                    error = f'AI сервис је одбио захтев (HTTP {exc.code}). Сажетак није послат.'
             elif isinstance(exc, ValueError):
                 error = str(exc)
             else:
