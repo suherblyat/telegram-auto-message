@@ -97,6 +97,13 @@ function reply(message, text) {
     ...(message.message_thread_id != null ? {message_thread_id:message.message_thread_id} : {})});
 }
 export async function handleSummary(update, env) {
+  // The alternate account handles commands and fetches history on demand.
+  // Never archive new messages in this mode.
+  if (env.SUMMARY_MODE === "on_demand") {
+    const message = update.message;
+    if (!message || !parseSummary(message, env.BOT_USERNAME)) return null;
+    return /^\//.test(message.text || '') ? new Response("OK") : reply(message,'Одговори на почетну поруку командом /sumiraj. Алт налог чита распон до команде у истој теми, без архивирања.');
+  }
   const message = update.message || update.edited_message;
   if (!message?.chat || message.from?.is_bot) return null;
   const query = parseSummary(message, env.BOT_USERNAME);
