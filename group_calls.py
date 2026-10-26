@@ -4,6 +4,7 @@ import contextlib
 import logging
 import os
 import secrets
+import signal
 import time
 from getpass import getpass
 from pathlib import Path
@@ -14,6 +15,7 @@ from pytgcalls import PyTgCalls
 from pytgcalls.types import GroupCallConfig
 from pytgcalls.exceptions import NotInCallError, NoActiveGroupCall
 from call_service.empty_policy import EmptyPolicy
+from call_service.summarize import install_summary
 
 ACCOUNT_ID = 8630511026
 GROUP_REFS = (-1001861714695, "@resursiced")
@@ -31,6 +33,10 @@ async def main():
             raise SystemExit('Недостаје TELEGRAM_SESSION или bot_na_maks.session.')
         session = str(path)
     client = TelegramClient(session, api_id, api_hash, flood_sleep_threshold=0)
+    # Railway marks the container active before Telegram connects. Allow the old
+    # deployment to drain before reusing this authorization key.
+    if os.environ.get("RAILWAY_ENVIRONMENT"):
+        await asyncio.sleep(45)
     await client.connect()
     watchers = []
     holders = {}
@@ -58,6 +64,7 @@ async def main():
             policies[chat_id] = EmptyPolicy()
             LOG.info('Group ready: %s (%s)', ref, chat_id)
 
+        install_summary(client, groups)
         calls = PyTgCalls(client)
         await calls.start()
 
@@ -198,7 +205,9 @@ async def main():
 
         watchers = [asyncio.create_task(monitor(group, locks[chat_id], policies[chat_id]))
                     for chat_id, group in groups.items()]
-        LOG.info('Ready: /call only; silent holder up to 600s; automatic empty-call shutdown')
+        LOG.info('Ready: /call and /sumiraj on demand; silent holder up to 600s; automatic empty-call shutdown')
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(client.disconnect()))
         await client.run_until_disconnected()
     finally:
         for watcher in watchers:
@@ -217,4 +226,4 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        pass 
