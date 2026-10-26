@@ -1,3 +1,4 @@
+import { handleSummaryBridge } from "./summary-bridge.js";
 import { handleSummary } from "./summarize.js";
 export { ChatSummary } from "./summarize.js";
 import app from "./userid-router.js";
@@ -6,9 +7,10 @@ export { OwnerTimer } from "./owner-timer.js";
 import { icons } from "./data/icons.js";
 import { calendar2026 } from "./data/calendar-all.js";
 
-// Ordinary text is recorded for summaries. Automatic moderation remains disabled.
+// On-demand summaries read history through the alternate account.
 export default {
   async fetch(request, env, ctx) {
+    if (new URL(request.url).pathname === "/internal/summary") return handleSummaryBridge(request, env);
     if (request.method !== "POST") return new Response("commands-only: moderation disabled");
     let update;
     try { update = await request.clone().json(); } catch { return ok(); }
